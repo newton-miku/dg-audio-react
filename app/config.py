@@ -28,8 +28,15 @@ DEFAULTS: dict = {
     # 每通道输出主强度上限（0-200，也受手机 App 侧上限约束）
     "ceilA": 50,
     "ceilB": 50,
-    # 阈值：在自动底噪之上再抬高多少 dB 才算有声音（0-30）
-    "threshold": 0.0,
+    # 门限：threshold_auto=True 自动跟随环境底噪；False 时用 threshold_db(绝对 dB)
+    "threshold_auto": True,
+    "threshold_db": -50.0,
+    # 自动增强（持续达标逐步加强度）
+    "boost_on": False,
+    # 达标停止后：recover=自动逐步恢复 / hold=一直保持直到手动恢复
+    "boost_mode": "recover",
+    # 安全硬上限：无论手动/自动都不超过的输出强度（0-200）
+    "safety_cap": 160,
     # 灵敏度：0-100，越高"曲线越陡"（小音量相对更弱、大音量更冲）
     "sensitivity": 45,
     # 音量包络释放时间 ms（越大越平滑/粘连，越小反应越脆）

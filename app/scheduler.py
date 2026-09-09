@@ -31,6 +31,14 @@ def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
 
+# ---------- 自动增强参数 ----------
+BOOST_TRIG = 0.60      # 幅度持续超过该值 -> 进入"达标"状态
+BOOST_REL = 0.35       # 幅度低于该值 -> 视为条件消失
+BOOST_UP_S = 8.0       # 持续达标多久升一级
+BOOST_DOWN_S = 5.0     # 条件消失多久降一级（仅 recover 模式）
+BOOST_STEP = 8         # 每级加多少强度
+
+
 # ---------- 加重"拍形"波形表 ----------
 # 每项是一串 (距拍点秒数 dt, 电平 0..1) 的线性折线；超出最后时刻 -> 0
 HIT_SHAPES: dict = {
@@ -78,6 +86,10 @@ class Scheduler:
         self._last_send_t: float = 0.0
         self._emitted_beat_t: float = 0.0
         self._onset_amp: float = 0.0   # 未锁定时用于 hybrid 瞬态强调的衰减包络
+        # 自动增强状态
+        self._boost = {"A": 0, "B": 0}
+        self._hot_s: float = 0.0
+        self._cool_s: float = 0.0
 
     # ---------- 外部控制 ----------
     def schedule_recal(self) -> None:
@@ -113,10 +125,13 @@ class Scheduler:
             await self._recal()
             now = time.monotonic()
 
-        threshold = float(cfg.get("threshold", 0.0))
+        # 门限：自动(跟随环境底噪) 或 手动绝对 dB
+        gate_manual = None
+        if not bool(cfg.get("threshold_auto", True)):
+            gate_manual = float(cfg.get("threshold_db", -50.0))
         release_tau = max(0.02, float(cfg.get("release_ms", 220)) / 1000.0)
         samples = self.feed.drain()
-        snap = self.analyzer.consume(samples, threshold_db=threshold, release_tau=release_tau)
+        snap = self.analyzer.consume(samples, gate_manual=gate_manual, release_tau=release_tau)
         self.analyzer.idle_check(now)
 
         bound = self.state.bound
@@ -161,6 +176,9 @@ class Scheduler:
         fx = int(_clamp(round(res["freq_base"] + span * _clamp(amp_ref, 0.0, 1.0)), FREQ_MIN, FREQ_MAX))
         fx = _clamp(fx, FREQ_MIN, FREQ_MAX)
 
+        # 自动增强/恢复（达标升一级；条件消失按模式恢复或保持）
+        self._update_boost(amp_ref, dt)
+
         # 瞬态强调包络（供 hybrid 未锁定时给重音加一点，随 dt 衰减）
         if snap.onset:
             self._onset_amp = min(1.0, max(0.45, snap.onset_db / 9.0))
@@ -179,7 +197,7 @@ class Scheduler:
 
         def slot_accent(st: float):
             """返回该槽要用的加重幅度(0..1)；无则 None。"""
-            if mode == "follow":
+            if mode not in ("beat", "hybrid"):
                 return None
             eff = None
             if locked:
@@ -244,12 +262,64 @@ class Scheduler:
         base = f"已绑定 {self.state.target}"
         if not enabled:
             return base + " · 已停止"
-        if mode == "follow":
-            return base + " · 跟随运行中"
+        if mode in ("follow", "audio"):
+            return base + " · 普通音频跟随运行中"
         if locked:
             what = "节拍跟随" if mode == "beat" else "混合"
             return f"{base} · {what} · 锁定 {round(bpm)} BPM"
         return base + (f" · 节拍检测中…（未锁定时仅连续跟随）" if mode == "beat" else " · 运行中")
+
+    # ---------- 自动增强 ----------
+    def reset_boost(self) -> None:
+        """手动恢复基础强度（清空自动增强）。"""
+        self._boost = {"A": 0, "B": 0}
+        self._hot_s = 0.0
+        self._cool_s = 0.0
+        self._applied = {"A": None, "B": None}
+        self.state.poke()
+
+    def _target_strength(self, ch: str) -> int:
+        """该通道当前目标主强度 = min(安全上限, 基础上限 + 自动增强)。"""
+        cfg = self.cfg.d
+        ceil = float(cfg.get("ceilA", 50) if ch == "A" else cfg.get("ceilB", 50))
+        safety = int(min(200, max(0, float(cfg.get("safety_cap", 200)))))
+        return int(min(safety, min(200, ceil) + self._boost[ch]))
+
+    def _update_boost(self, amp: float, dt: float) -> None:
+        cfg = self.cfg.d
+        if not bool(cfg.get("boost_on", False)):
+            if self._boost["A"] or self._boost["B"]:
+                self._boost = {"A": 0, "B": 0}
+                self._applied = {"A": None, "B": None}
+            self._hot_s = self._cool_s = 0.0
+            return
+        hot = amp >= BOOST_TRIG
+        if hot:
+            self._hot_s += dt
+            self._cool_s = 0.0
+        elif amp < BOOST_REL:
+            self._cool_s += dt
+            self._hot_s = 0.0
+        changed = False
+        if self._hot_s >= BOOST_UP_S:
+            self._hot_s = 0.0
+            for ch in ("A", "B"):
+                ceil = float(cfg.get("ceilA", 50) if ch == "A" else cfg.get("ceilB", 50))
+                safety = int(min(200, max(0, float(cfg.get("safety_cap", 200)))))
+                room = max(0, safety - int(min(200, ceil)))
+                if self._boost[ch] < room:
+                    self._boost[ch] = min(room, self._boost[ch] + BOOST_STEP)
+                    changed = True
+        elif self._cool_s >= BOOST_DOWN_S:
+            self._cool_s = 0.0
+            if str(cfg.get("boost_mode", "recover")) == "recover":
+                for ch in ("A", "B"):
+                    if self._boost[ch] > 0:
+                        self._boost[ch] = max(0, self._boost[ch] - BOOST_STEP)
+                        changed = True
+        if changed:
+            self._applied = {"A": None, "B": None}
+            self.state.poke()
 
     # ---------- 底层 ----------
     async def _clear(self, ch: str) -> None:
@@ -280,11 +350,11 @@ class Scheduler:
         if not self.state.bound or self.dg.client is None:
             return False
         channel = Channel.A if ch == "A" else Channel.B
-        ceil_key = "ceilA" if ch == "A" else "ceilB"
         limit = self.state.a_limit if ch == "A" else self.state.b_limit
-        strength = int(min(200, max(10, float(self.cfg.get(ceil_key, 50)))))
+        strength = self._target_strength(ch)
         if limit > 0:
             strength = min(strength, limit)
+        strength = max(10, strength)
         try:
             await self.dg.client.set_strength(channel, StrengthOperationType.SET_TO, strength)
             self._applied[ch] = strength
@@ -308,8 +378,8 @@ class Scheduler:
             return
         try:
             la, lb = self.state.a_limit, self.state.b_limit
-            da = int(min(200, max(0, float(self.cfg.get("ceilA", 50)))))
-            db = int(min(200, max(0, float(self.cfg.get("ceilB", 50)))))
+            da = self._target_strength("A")
+            db = self._target_strength("B")
             if la > 0:
                 da = min(da, la)
             if lb > 0:
@@ -357,6 +427,8 @@ class Scheduler:
             outB=round(outB, 3),
             bpm=bpm,
             locked=bool(snap.locked),
+            boostA=int(self._boost.get("A", 0)),
+            boostB=int(self._boost.get("B", 0)),
             pulses_sent=self._pulses_sent,
             wave_on=(time.monotonic() - self._last_send_t) < 0.8,
             status=st,

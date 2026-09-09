@@ -95,7 +95,11 @@ class Analyzer:
             self._bpm = None
 
     # ---------- 处理 ----------
-    def consume(self, samples: list[tuple[float, float]], threshold_db: float = 0.0, release_tau: float = 0.25) -> Snapshot:
+    def consume(self, samples: list[tuple[float, float]], gate_manual: float | None = None, release_tau: float = 0.25) -> Snapshot:
+        """处理新样本。
+
+        gate_manual: 手动绝对门限(dB)；None = 自动跟随环境底噪。
+        """
         onset = False
         onset_db = 0.0
         fresh = bool(samples)
@@ -128,7 +132,7 @@ class Analyzer:
             kref = 1.0 - math.exp(-dt / self.REF_TAU)
             self._ref += (db - self._ref) * kref
 
-            gate = self._floor + threshold_db
+            gate = self._floor if gate_manual is None else gate_manual
             diff = self._env - self._ref
             rising = self._env > env_prev
             if (
@@ -155,7 +159,7 @@ class Analyzer:
             env_db=self._env,
             ref_db=self._ref,
             floor_db=self._floor,
-            gate_db=self._floor + threshold_db,
+            gate_db=self._floor if gate_manual is None else gate_manual,
             onset=onset,
             onset_db=onset_db,
             locked=self._locked,

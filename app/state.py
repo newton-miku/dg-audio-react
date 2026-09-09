@@ -33,6 +33,8 @@ class State:
         self.outB: float = 0.0
         self.bpm: float | None = None
         self.locked: bool = False          # 节拍器是否已锁定
+        self.boostA: int = 0               # 自动增强已加值（通道 A）
+        self.boostB: int = 0
         # 波形发送状态（诊断）
         self.pulses_sent: int = 0      # 累计下发脉冲条数
         self.wave_on: bool = False     # 最近 ~0.8s 内是否在发波形
@@ -62,6 +64,8 @@ class State:
                 "outB": round(self.outB, 3),
                 "bpm": self.bpm,
                 "locked": self.locked,
+                "boostA": self.boostA,
+                "boostB": self.boostB,
                 "pulses_sent": self.pulses_sent,
                 "wave_on": self.wave_on,
                 "error": self.error,

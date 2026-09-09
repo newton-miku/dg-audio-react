@@ -2,7 +2,8 @@
 
 const $ = (id) => document.getElementById(id);
 
-const cfgKeys = ["mode", "beat_shape", "style", "chA", "chB", "ceilA", "ceilB", "threshold", "sensitivity", "release_ms"];
+const cfgKeys = ["mode", "beat_shape", "style", "chA", "chB", "ceilA", "ceilB", "sensitivity", "release_ms",
+  "threshold_auto", "threshold_db", "boost_on", "boost_mode", "safety_cap"];
 
 let saveTimer = null;
 function scheduleSave() {
@@ -19,9 +20,13 @@ function controlSnapshot() {
     chB: $("chB").checked,
     ceilA: +$("ceilA").value,
     ceilB: +$("ceilB").value,
-    threshold: +$("thresh").value,
     sensitivity: +$("sens").value,
     release_ms: +$("relMs").value,
+    threshold_auto: $("gateAuto").checked,
+    threshold_db: +$("thresh").value,
+    boost_on: $("boostOn").checked,
+    boost_mode: $("boostMode").value,
+    safety_cap: +$("safeCap").value,
   };
 }
 
@@ -60,7 +65,7 @@ function updateModeHint(mode) {
   } else if (mode === "hybrid") {
     el.textContent = "连续跟随为底，锁定节拍时每拍加重，未锁定时响亮的瞬态/重音也会轻强调——更适合音乐。";
   } else {
-    el.textContent = "强度与频率只随音量平滑变化，不做节拍追踪/强调。";
+    el.textContent = "普通音频：没有固定节拍也能用——强度与频率都随声音实时变（说话/音乐/电影都行）。";
   }
 }
 
@@ -146,6 +151,9 @@ function render(state) {
   $("lockText").textContent = state.locked && state.bpm ? Math.round(state.bpm) + " BPM" : "未锁定";
   const ps = state.pulses_sent || 0;
   $("diagText").textContent = (state.wave_on ? "◆ 正在下发波形 · 累计 " : "累计已发波形 ") + ps + " 条";
+  $("boostAText").textContent = state.boostA || 0;
+  $("boostBText").textContent = state.boostB || 0;
+  if ($("gateAuto") && $("gateAuto").checked) $("threshVal").textContent = "自动";
 }
 
 // ---------- WebSocket 遥测 ----------
@@ -175,6 +183,7 @@ async function init() {
   };
   bindSlider("ceilA", "ceilAval"); bindSlider("ceilB", "ceilBval");
   bindSlider("thresh", "threshVal"); bindSlider("sens", "sensVal"); bindSlider("relMs", "relMsVal");
+  bindSlider("safeCap", "safeCapVal");
   ["modeSel", "styleSel", "beatShape"].forEach((id) => {
     $(id).addEventListener("change", () => {
       if (id === "modeSel") updateModeHint($(id).value);
@@ -184,12 +193,19 @@ async function init() {
   ["chA", "chB"].forEach((id) => {
     $(id).addEventListener("change", scheduleSave);
   });
+  ["boostOn", "boostMode"].forEach((id) => {
+    $(id).addEventListener("change", scheduleSave);
+  });
+  const gateAutoEl = $("gateAuto");
+  const setGateUI = (auto) => { $("thresh").disabled = auto; if (auto) $("threshVal").textContent = "自动"; };
+  gateAutoEl.addEventListener("change", () => { setGateUI(gateAutoEl.checked); scheduleSave(); });
 
   $("startBtn").addEventListener("click", async () => {
     const j = await fetch("/api/state").then((r) => r.json());
     await sendCmd({ action: j.enabled ? "stop" : "start" });
   });
   $("recalBtn").addEventListener("click", () => sendCmd({ action: "recal" }));
+  $("resetBoostBtn").addEventListener("click", () => sendCmd({ action: "reset_boost" }));
   $("applyDevBtn").addEventListener("click", () => sendCmd({ action: "set_device", device: $("devSel").value }));
   $("testA").addEventListener("click", () => sendCmd({ action: "test", ch: "A" }));
   $("testB").addEventListener("click", () => sendCmd({ action: "test", ch: "B" }));
@@ -212,14 +228,21 @@ async function init() {
   // 读配置 & 设备
   try {
     const cfg = await fetch("/api/config").then((r) => r.json());
-    $("modeSel").value = cfg.mode || "hybrid";
-    updateModeHint(cfg.mode || "hybrid");
+    $("modeSel").value = cfg.mode || "beat";
+    updateModeHint(cfg.mode || "beat");
     $("styleSel").value = cfg.style || "mid";
     $("beatShape").value = cfg.beat_shape || "sharp";
     $("chA").checked = !!cfg.chA; $("chB").checked = !!cfg.chB;
     $("ceilA").value = cfg.ceilA; $("ceilAval").textContent = cfg.ceilA;
     $("ceilB").value = cfg.ceilB; $("ceilBval").textContent = cfg.ceilB;
-    $("thresh").value = cfg.threshold; $("threshVal").textContent = cfg.threshold;
+    gateAutoEl.checked = cfg.threshold_auto !== false;
+    $("thresh").value = (cfg.threshold_db == null ? -50 : cfg.threshold_db);
+    $("threshVal").textContent = $("thresh").value;
+    setGateUI(gateAutoEl.checked);
+    $("boostOn").checked = !!cfg.boost_on;
+    $("boostMode").value = cfg.boost_mode || "recover";
+    $("safeCap").value = cfg.safety_cap || 160;
+    $("safeCapVal").textContent = cfg.safety_cap || 160;
     $("sens").value = cfg.sensitivity; $("sensVal").textContent = cfg.sensitivity;
     $("relMs").value = cfg.release_ms; $("relMsVal").textContent = cfg.release_ms;
   } catch (e) { showError("读取配置失败: " + e); }

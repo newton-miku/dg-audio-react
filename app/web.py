@@ -16,7 +16,9 @@ WEBUI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui")
 # 允许前端保存的配置键
 CONFIG_KEYS = {
     "mode", "beat_shape", "style", "chA", "chB", "ceilA", "ceilB",
-    "threshold", "sensitivity", "release_ms",
+    "sensitivity", "release_ms",
+    "threshold_auto", "threshold_db",
+    "boost_on", "boost_mode", "safety_cap",
 }
 
 _qr_cache: dict = {"text": None, "png": b""}
@@ -87,6 +89,9 @@ def build_app(state, cfg, scheduler, dg, start_capture) -> web.Application:
             return web.json_response({"ok": True})
         if action == "recal":
             scheduler.schedule_recal()
+            return web.json_response({"ok": True})
+        if action == "reset_boost":
+            scheduler.reset_boost()
             return web.json_response({"ok": True})
         if action == "set_device":
             device = data.get("device", "")

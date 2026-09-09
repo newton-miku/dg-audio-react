@@ -200,6 +200,32 @@ async function init() {
   const setGateUI = (auto) => { $("thresh").disabled = auto; if (auto) $("threshVal").textContent = "自动"; };
   gateAutoEl.addEventListener("change", () => { setGateUI(gateAutoEl.checked); scheduleSave(); });
 
+  // 直接在电脑声音电平条上拖动设门限（会切到手动）
+  const dbMeter = $("dbMeter");
+  let gateDragging = false;
+  const setGateFromPx = (ev) => {
+    const r = dbMeter.getBoundingClientRect();
+    const p = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+    let db = Math.round(p * 120 - 120);
+    db = Math.max(-100, Math.min(-10, db));
+    if (gateAutoEl.checked) gateAutoEl.checked = false;
+    setGateUI(false);
+    $("thresh").value = db;
+    $("threshVal").textContent = db;
+    scheduleSave();
+  };
+  if (dbMeter) {
+    dbMeter.addEventListener("pointerdown", (e) => {
+      gateDragging = true;
+      if (dbMeter.setPointerCapture) dbMeter.setPointerCapture(e.pointerId);
+      setGateFromPx(e);
+    });
+    dbMeter.addEventListener("pointermove", (e) => { if (gateDragging) setGateFromPx(e); });
+    const endDrag = () => { gateDragging = false; };
+    dbMeter.addEventListener("pointerup", endDrag);
+    dbMeter.addEventListener("pointercancel", endDrag);
+  }
+
   $("startBtn").addEventListener("click", async () => {
     const j = await fetch("/api/state").then((r) => r.json());
     await sendCmd({ action: j.enabled ? "stop" : "start" });

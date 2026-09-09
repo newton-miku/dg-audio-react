@@ -51,10 +51,10 @@
       <span class="dim small">与音频无关，1.2s 强波，用于验证贴片/通道/强度是否通。</span>
     </div>
     <div class="row chk">
-      <input type="checkbox" id="boostOn" /><label for="boostOn">自动增强（声音持续够响就逐步加强度）</label>
+      <input type="checkbox" id="boostOn" /><label class="help" data-help="声音持续够响（约8秒）自动升一级强度(+8)；条件消失后按下方选择自动恢复或保持，可点“恢复基础强度”。">自动增强（持续够响就逐步加强度）</label>
     </div>
     <div class="row">
-      <label class="dim">条件消失后</label>
+      <label class="dim help" data-help="达标后变安静时：自动恢复=每约5秒降一级回到基础；保持=维持已增强的强度，直到你手动点“恢复基础强度”。">条件消失后</label>
       <select id="boostMode">
         <option value="recover">自动逐步恢复原强度</option>
         <option value="hold">保持增强，直到我点“恢复”</option>
@@ -62,7 +62,7 @@
       <span class="dim small">达标约 8s 升一级；恢复约 5s 降一级。</span>
     </div>
     <div class="row">
-      <label class="dim">安全最高强度 <b id="safeCapVal">160</b></label>
+      <label class="dim help" data-help="硬上限(20-200)：无论基础拉多高、自动增强加多少，输出强度都不会超过它——防止受不了。">安全最高强度 <b id="safeCapVal">160</b></label>
       <input type="range" id="safeCap" min="20" max="200" step="5" value="160" />
       <span class="dim small">无论手动/自动都不超过（硬上限）。</span>
     </div>
@@ -74,7 +74,7 @@
       <div class="chan" data-ch="A">
         <label class="chk"><input type="checkbox" id="chA" /> 通道 A</label>
         <div class="row">
-          <label class="dim">上限 <b id="ceilAval">50</b></label>
+          <label class="dim help" data-help="A 通道基础主强度；自动增强会在其上往上加，但都不超过“安全最高强度”。">上限 <b id="ceilAval">50</b></label>
           <input type="range" id="ceilA" min="0" max="200" step="1" value="50" />
         </div>
         <div class="dim small">App 当前：<span id="aText">0</span>/<span id="aLimitText">0</span></div>
@@ -82,7 +82,7 @@
       <div class="chan" data-ch="B">
         <label class="chk"><input type="checkbox" id="chB" /> 通道 B</label>
         <div class="row">
-          <label class="dim">上限 <b id="ceilBval">50</b></label>
+          <label class="dim help" data-help="B 通道基础主强度；自动增强在其上往上加，均不超过“安全最高强度”。">上限 <b id="ceilBval">50</b></label>
           <input type="range" id="ceilB" min="0" max="200" step="1" value="50" />
         </div>
         <div class="dim small">App 当前：<span id="bText">0</span>/<span id="bLimitText">0</span></div>
@@ -94,7 +94,7 @@
   <section class="card" id="card-set">
     <h2>声音 → 强度</h2>
     <div class="row">
-      <label class="dim">模式</label>
+      <label class="dim help" data-help="普通音频=无节拍也随声音；节拍跟随=追踪视频节拍器并在每拍加重；混合=另加瞬态强调。">模式</label>
       <select id="modeSel">
         <option value="beat">节拍跟随：连续随声音，锁到节拍器时每拍加重</option>
         <option value="hybrid">混合：连续随声音 + 节拍/瞬态都强调</option>
@@ -103,7 +103,7 @@
     </div>
     <p id="modeHint" class="dim small"></p>
     <div class="row">
-      <label class="dim">质感</label>
+      <label class="dim help" data-help="波形频率档：低沉撞击=低频沉闷扎；标准=均衡；高频细麻=细麻锐利。">质感</label>
       <select id="styleSel">
         <option value="deep">低沉撞击</option>
         <option value="mid">标准</option>
@@ -111,7 +111,7 @@
       </select>
     </div>
     <div class="row">
-      <label class="dim">拍形（每拍加重用）</label>
+      <label class="dim help" data-help="锁到节拍后，每一拍的加重波形：单击=干脆一下；双击=重+回弹；三连；长揉=持续按揉半拍；呼吸渐强=渐强到顶再落。">拍形（每拍加重用）</label>
       <select id="beatShape">
         <option value="sharp">单击</option>
         <option value="double">双击（重+回弹）</option>
@@ -124,13 +124,13 @@
       <input type="checkbox" id="gateAuto" checked /><label for="gateAuto">门限跟随环境（自动底噪）</label>
     </div>
     <div class="row" id="gateRow">
-      <label class="dim">手动门限 <b id="threshVal">-50</b> dB</label>
+      <label class="dim help" data-help="只有高于门限的声音才会触发输出。也可直接在下方电脑声音条上左右拖动来设门限（拖了会自动关掉上面的自动）。">手动门限 <b id="threshVal">-50</b> dB</label>
       <input type="range" id="thresh" min="-85" max="-15" step="1" value="-50" disabled />
       <span class="dim small">高于门限才算有声音。取消自动后可直接调。</span>
     </div>
-    <div class="row"><label class="dim">灵敏度 <b id="sensVal">45</b></label>
+    <div class="row"><label class="dim help" data-help="音量→强度的曲线。低=小音量也开始出力（平缓、一直有感觉）；高=越大声越冲、小音量几乎不出（陡峭）。调到你自己感觉“跟手”。">灵敏度 <b id="sensVal">45</b></label>
       <input type="range" id="sens" min="0" max="100" step="1" value="45" /></div>
-    <div class="row"><label class="dim">释放 <b id="relMsVal">220</b> ms</label>
+    <div class="row"><label class="dim help" data-help="声音变弱后刺激回落的快慢。小=干脆、跟着节拍收；大=平滑粘连、更持续。">释放 <b id="relMsVal">220</b> ms</label>
       <input type="range" id="relMs" min="40" max="800" step="10" value="220" /></div>
     <div class="row"><button id="recalBtn">重新校准底噪</button>
       <span class="dim small">开始播放前静音 1 秒再点。</span></div>
@@ -139,8 +139,8 @@
   <!-- 电平 -->
   <section class="card" id="card-meter">
     <h2>电平 / 输出</h2>
-    <div class="row labelrow"><span>电脑声音</span><span class="mono" id="dbText">-120 dB</span></div>
-    <div class="meter"><div id="dbFill" class="fill"></div><div id="gateTick" class="tick"></div></div>
+    <div class="row labelrow"><span>电脑声音 <span class="dim small" id="gateDragTip">（在这条上左右拖动可直接调门限）</span></span><span class="mono" id="dbText">-120 dB</span></div>
+    <div class="meter" id="dbMeter"><div id="dbFill" class="fill"></div><div id="gateTick" class="tick"></div></div>
     <div class="row labelrow"><span>输出幅度</span><span class="mono" id="ampText">0%</span></div>
     <div class="meter thin"><div id="ampFill" class="fill amp"></div></div>
     <div class="meterlabel">

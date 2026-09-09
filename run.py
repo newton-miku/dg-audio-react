@@ -25,7 +25,10 @@ if sys.stdout:
 
 from aiohttp import web  # noqa: E402
 
-from app.capture import AudioCapture, device_label, find_device, list_devices, pick_default  # noqa: E402
+from app.capture import (  # noqa: E402
+    AudioCapture, device_label, find_device, list_devices, ordered_candidates,
+    pick_default, scan_working,
+)
 from app.config import Config  # noqa: E402
 from app.demo import DemoFeed  # noqa: E402
 from app.dg import DGLab  # noqa: E402
@@ -58,16 +61,27 @@ async def amain(demo: bool, cfg: Config) -> None:
         if demofeed:
             return True, "演示模式不需要音频设备"
         devs = list_devices()
-        dev = find_device(label, devs) if label else pick_default(devs)
-        if dev is None:
-            cfg.set_many({"device": ""})
+        if not devs:
             if cap:
                 cap.error = "没有可用的音频输入设备"
-            return False, "未找到匹配的音频设备"
+            return False, "没有可用音频设备"
         if cap is None:
             cap = AudioCapture(feed)
-        cap.start(dev)
-        cfg.set_many({"device": label})
+        if label:
+            dev = find_device(label, devs)
+            if dev is None:
+                cfg.set_many({"device": ""})
+                return False, "找不到该设备（可能被拔出/改名），已回到自动"
+            cap.start(dev)
+            cfg.set_many({"device": label})
+        else:
+            chosen = scan_working(cap, feed, ordered_candidates(devs))
+            if chosen is None:
+                cfg.set_many({"device": ""})
+                cap.error = "自动扫描没找到能出声的输入，请手动选一个"
+                return False, "自动扫描未找到能出声的设备（请手动选择）"
+            dev = chosen
+            cfg.set_many({"device": ""})   # 自动：不固定，下次重启重新扫
         sched.schedule_recal()
         return True, f"正在捕获：{device_label(dev)}"
 
@@ -78,17 +92,27 @@ async def amain(demo: bool, cfg: Config) -> None:
     else:
         cap = AudioCapture(feed)
         devs = list_devices()
-        dev = find_device(cfg.get("device", ""), devs) if cfg.get("device") else pick_default(devs)
-        if dev is None:
-            cap.error = "没有可用的音频输入设备：请在界面里选择，或安装 pyaudiowpatch/启用立体声混音"
+        want = cfg.get("device", "")
+        if want:
+            dev = find_device(want, devs)
+            if dev is None:
+                cap.error = "找不到配置的设备，可重新选择"
+            else:
+                cap.start(dev)
+                print("音频捕获:", device_label(dev))
+        elif devs:
+            chosen = scan_working(cap, feed, ordered_candidates(devs))
+            if chosen:
+                print("音频捕获(自动扫描):", device_label(chosen))
+            else:
+                cap.error = "自动扫描无可用输入：请在页面手动选择，或装 pyaudiowpatch/启用立体声混音"
         else:
-            cap.start(dev)
-            print("音频捕获:", device_label(dev))
+            cap.error = "没有可用输入设备：请在页面选择，或装 pyaudiowpatch/启用立体声混音"
 
     # --- DG-Lab 服务 + 调度 ---
     dg = DGLab(cfg, state)
     sched = Scheduler(cfg, state, feed, cap if not demo else None, dg)
-    if not demo and cap and cap.device:
+    if not demo and cap and cap.device and cap.running:
         sched.schedule_recal()
 
     # --- Web ---

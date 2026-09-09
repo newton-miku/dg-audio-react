@@ -327,3 +327,42 @@ class AudioCapture:
         self.error = msg
         self.running = False
         self._on_error(msg)
+
+
+def scan_working(cap: "AudioCapture", feed: LevelFeed, candidates: list[dict],
+                 probe_s: float = 1.1):
+    """自动模式：逐个试开设备，第一个在 probe_s 内能出数据的就保留。
+
+    静音/空闲的虚拟端点常常不出数据 -> 自动跳过，换下一个。返回选中的设备或 None。
+    """
+    cap.stop()
+    for dev in candidates:
+        cap.start(dev)
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < probe_s and not cap._stop_evt.is_set():
+            if len(feed) > 0:
+                return dev
+            time.sleep(0.03)
+        cap.stop()
+    cap.stop()
+    return None
+
+
+def ordered_candidates(devices: list[dict]) -> list[dict]:
+    """自动模式候选顺序：猜的默认在前，其后所有环回，最后普通输入，去重。"""
+    out: list[dict] = []
+    seen = set()
+
+    def add(d):
+        if d is not None and id(d) not in seen:
+            seen.add(id(d))
+            out.append(d)
+
+    add(pick_default(devices))
+    for d in devices:
+        if d.get("loopback"):
+            add(d)
+    for d in devices:
+        if not d.get("loopback"):
+            add(d)
+    return out

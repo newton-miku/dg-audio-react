@@ -11,8 +11,6 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 DEFAULTS: dict = {
     # DG-Lab WebSocket 服务（手机 App 扫码连接）
     "dglab_port": 56742,
-    # 二维码/提示里显示的地址："" = 自动挑选真实局域网 IP（跳过 VPN）
-    "dg_ip": "",
     # 广播给手机扫码的 IP："" = 自动选真实局域网地址（避开 VPN/虚拟网卡）
     "dg_ip": "",
     # Web 控制页
@@ -20,8 +18,10 @@ DEFAULTS: dict = {
     "web_port": 8900,
     # 音频设备："" = 自动选"默认播放设备"的环回端点（系统声音）
     "device": "",
-    # 响应模式: beat(节拍脉冲,默认,寸止用) / hybrid / follow
+    # 响应模式: beat(节拍跟随,默认,寸止用) / hybrid / follow
     "mode": "beat",
+    # 加重时的"拍形"：sharp/double/triple/knead/swell
+    "beat_shape": "sharp",
     # 通道
     "chA": True,
     "chB": True,

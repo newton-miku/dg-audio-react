@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 
-const cfgKeys = ["mode", "style", "chA", "chB", "ceilA", "ceilB", "threshold", "sensitivity", "release_ms"];
+const cfgKeys = ["mode", "beat_shape", "style", "chA", "chB", "ceilA", "ceilB", "threshold", "sensitivity", "release_ms"];
 
 let saveTimer = null;
 function scheduleSave() {
@@ -13,6 +13,7 @@ function scheduleSave() {
 function controlSnapshot() {
   return {
     mode: $("modeSel").value,
+    beat_shape: $("beatShape").value,
     style: $("styleSel").value,
     chA: $("chA").checked,
     chB: $("chB").checked,
@@ -174,7 +175,7 @@ async function init() {
   };
   bindSlider("ceilA", "ceilAval"); bindSlider("ceilB", "ceilBval");
   bindSlider("thresh", "threshVal"); bindSlider("sens", "sensVal"); bindSlider("relMs", "relMsVal");
-  ["modeSel", "styleSel"].forEach((id) => {
+  ["modeSel", "styleSel", "beatShape"].forEach((id) => {
     $(id).addEventListener("change", () => {
       if (id === "modeSel") updateModeHint($(id).value);
       scheduleSave();
@@ -214,6 +215,7 @@ async function init() {
     $("modeSel").value = cfg.mode || "hybrid";
     updateModeHint(cfg.mode || "hybrid");
     $("styleSel").value = cfg.style || "mid";
+    $("beatShape").value = cfg.beat_shape || "sharp";
     $("chA").checked = !!cfg.chA; $("chB").checked = !!cfg.chB;
     $("ceilA").value = cfg.ceilA; $("ceilAval").textContent = cfg.ceilA;
     $("ceilB").value = cfg.ceilB; $("ceilBval").textContent = cfg.ceilB;

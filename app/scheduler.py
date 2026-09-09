@@ -31,6 +31,34 @@ def _clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
 
+# ---------- 加重"拍形"波形表 ----------
+# 每项是一串 (距拍点秒数 dt, 电平 0..1) 的线性折线；超出最后时刻 -> 0
+HIT_SHAPES: dict = {
+    "sharp":   ((0.00, 1.00), (0.10, 0.00)),               # 单击：干脆一击
+    "double":  ((0.00, 1.00), (0.07, 0.10), (0.09, 0.60), (0.27, 0.00)),   # 双击：重+回弹
+    "triple":  ((0.00, 1.00), (0.06, 0.05), (0.09, 0.50), (0.17, 0.05), (0.20, 0.78), (0.32, 0.00)),  # 三连
+    "knead":   ((0.00, 0.92), (0.34, 0.92), (0.50, 0.00)),  # 长揉：持续按压后收
+    "swell":   ((0.00, 0.20), (0.13, 0.45), (0.28, 1.00), (0.43, 0.60), (0.62, 0.00)),  # 呼吸渐强再落
+}
+SHAPE_NAMES = {
+    "sharp": "单击", "double": "双击", "triple": "三连", "knead": "长揉", "swell": "呼吸渐强",
+}
+SHAPE_MAX = 0.70   # 超过拍点这么久就不再加（覆盖一拍窗口）
+
+
+def _shape_level(shape: str, d: float) -> float:
+    """距拍点 d 秒处该拍形的电平（0..1）。"""
+    pts = HIT_SHAPES.get(shape, HIT_SHAPES["sharp"])
+    if d <= pts[0][0]:
+        return pts[0][1]
+    for i in range(len(pts) - 1):
+        (t0, l0), (t1, l1) = pts[i], pts[i + 1]
+        if d <= t1:
+            f = (d - t0) / max(1e-6, (t1 - t0))
+            return l0 + (l1 - l0) * f
+    return 0.0
+
+
 class Scheduler:
     def __init__(self, cfg, state: State, feed: LevelFeed, capture, dg) -> None:
         self.cfg = cfg
@@ -146,25 +174,30 @@ class Scheduler:
         def follow_strengths(a: float) -> tuple:
             return tuple(int(_clamp(FOLLOW_SHAPE[i] * a * ramp, 0.0, 1.0) * 100) for i in range(4))
 
-        # 强调源
-        def accent_for(st: float):
-            """返回要盖到该槽的一拍强度；无则 None。"""
+        # 强调源：节拍(锁定)按"拍形"波形 + hybrid 的瞬态强调
+        bshape = str(cfg.get("beat_shape", "sharp"))
+
+        def slot_accent(st: float):
+            """返回该槽要用的加重幅度(0..1)；无则 None。"""
             if mode == "follow":
                 return None
-            acc = None
+            eff = None
             if locked:
-                beats = self.analyzer.beats_between(st - 0.02, st + PULSE_S + 0.02)
-                if beats:
-                    mid = st + PULSE_S / 2.0
-                    b = min(beats, key=lambda x: abs(x - mid))
-                    if abs(b - self._emitted_beat_t) > 0.02:
-                        self._emitted_beat_t = b
-                        # 那一拍的强弱也随音量：越响越重
-                        acc = min(1.0, max(0.45, amp_ref * 1.35))
-            if mode == "hybrid" and self._onset_amp > 0.05 and st <= now + 0.40:
-                transient = min(1.0, self._onset_amp * 1.15 + 0.15)
-                acc = transient if acc is None else max(acc, transient)
-            return acc
+                base_acc = min(1.0, 0.60 + amp_ref * 0.5)   # 保底够明显，仍随音量微调
+                in_slot = self.analyzer.beats_between(st, st + PULSE_S)
+                if in_slot:
+                    d = 0.0
+                else:
+                    b0 = self.analyzer.beat_before(st)
+                    d = (st - b0) if b0 is not None else None
+                if d is not None and d < SHAPE_MAX:
+                    v = base_acc * _shape_level(bshape, d)
+                    if v >= 0.12:
+                        eff = v
+            if mode == "hybrid" and self._onset_amp > 0.05 and st <= now + 0.35:
+                tacc = min(1.0, self._onset_amp * 1.15 + 0.15)
+                eff = tacc if eff is None else max(eff, tacc)
+            return eff
 
         # ---------- 前视队列：成批发 ----------
         if self._q_end is None or self._q_end < now - 0.05:
@@ -177,9 +210,10 @@ class Scheduler:
             pushed += 1
             st = self._q_end
             a_strength = amp_ref
-            acc = accent_for(st)
+            acc = slot_accent(st)
             if acc is not None:
-                f, s = self.mapper.overlay_beat(res, acc, body_freq=fx)
+                q = int(_clamp(acc * ramp, 0.0, 1.0) * 100)
+                f, s = (fx, fx, fx, fx), (q, q, q, q)
                 a_strength = acc
             else:
                 f = (fx, fx, fx, fx)

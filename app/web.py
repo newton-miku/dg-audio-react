@@ -15,7 +15,7 @@ WEBUI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui")
 
 # 允许前端保存的配置键
 CONFIG_KEYS = {
-    "mode", "style", "chA", "chB", "ceilA", "ceilB",
+    "mode", "beat_shape", "style", "chA", "chB", "ceilA", "ceilB",
     "threshold", "sensitivity", "release_ms",
 }
 

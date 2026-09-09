@@ -213,3 +213,15 @@ class Analyzer:
                 out.append(tt)
             m += 1
         return out
+
+    def beat_before(self, t: float) -> float | None:
+        """返回 <= t 的最近一个（可为未来的）预测拍点时刻；未锁定返回 None。"""
+        if not self._locked or not self._period or not self._onsets:
+            return None
+        P = self._period
+        a = self._onsets[-1]
+        k = int(math.floor((t - a) / P + 1e-9))
+        b = a + k * P
+        if b > t + 1e-9:
+            b -= P
+        return b

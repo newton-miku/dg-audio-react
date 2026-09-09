@@ -101,7 +101,7 @@ async def amain(demo: bool, cfg: Config) -> None:
     await site.start()
     url = f"http://{host}:{port}"
     print("=" * 60)
-    print(f"  郊狼3 声音反应控制器已启动")
+    print(f"  声狼 · DG-Audio-React（郊狼3 / DG-Lab 3.0 声音反应控制）")
     print(f"  控制页: {url}   DG-Lab端口: {cfg.get('dglab_port')}")
     if demo:
         print("  演示模式：合成音源，未使用真实音频设备")

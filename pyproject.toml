@@ -1,7 +1,7 @@
 [project]
-name = "dg-redlight"
+name = "dg-audio-react"
 version = "0.1.0"
-description = "郊狼3 (DG-LAB Coyote) 电脑声音监听 -> 自动控制强度"
+description = "声狼 DG-Audio-React：郊狼3 (DG-Lab 3.0) 电脑声音反应控制"
 requires-python = ">=3.10"
 
 [tool.uv]

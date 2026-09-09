@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>郊狼3 · 声音反应控制器</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header>
+  <h1>郊狼 3 <span class="dim">/ DG-Lab · 电脑声音反应控制</span></h1>
+  <div class="statusline">
+    <span id="statusDot" class="dot off"></span>
+    <span id="statusText">初始化…</span>
+  </div>
+  <div id="targetLine" class="dim small"></div>
+  <div id="errorLine" class="err small"></div>
+</header>
+
+<main>
+  <!-- 左：连接 -->
+  <section class="card" id="card-conn">
+    <h2>连接郊狼（DG-Lab App）</h2>
+    <p class="dim small">手机与电脑连同一 Wi-Fi。在 DG-Lab App 的「被控 / Socket」里扫描二维码绑定郊狼 3。</p>
+    <div id="qrBox" class="qrbox hidden"><img id="qrImg" alt="绑定二维码" /></div>
+    <div id="connHint" class="hint"></div>
+    <div class="row netrow">
+      <label class="dim">地址（ws://）</label>
+      <input id="ipInput" list="ipDatalist" placeholder="自动…" spellcheck="false" />
+      <datalist id="ipDatalist"></datalist>
+      <button id="ipApply">应用并刷新</button>
+      <button id="ipAuto" class="ghost">自动</button>
+    </div>
+    <div class="dim small mono" id="wsUrlText"></div>
+    <p class="dim small tip">
+      若扫码连不上：① 确认手机与电脑<b>同一 Wi-Fi</b>；② 地址应填电脑的<b>局域网 IP</b>（192.168 / 10 开头），
+      别用 <b>100.x（VPN/虚拟网卡）</b>；③ Windows 防火墙需允许本程序在<b>专用网络</b>访问（或放行 DG-Lab 端口，默认 56742）。
+    </p>
+  </section>
+
+  <!-- 中：输出控制 -->
+  <section class="card" id="card-out">
+    <h2>输出控制</h2>
+    <div class="row">
+      <button id="startBtn" class="big" disabled>开始</button>
+      <span class="dim small">停止会立即清空波形并把强度归零。</span>
+    </div>
+    <div class="row">
+      <button id="testA">A 通道：发测试波形</button>
+      <button id="testB">B 通道：发测试波形</button>
+      <span class="dim small">与音频无关，1.2s 强波，用于验证贴片/通道/强度是否通。</span>
+    </div>
+    <div class="grid2">
+      <div class="chan" data-ch="A">
+        <label class="chk"><input type="checkbox" id="chA" /> 通道 A</label>
+        <div class="row">
+          <label class="dim">上限 <b id="ceilAval">50</b></label>
+          <input type="range" id="ceilA" min="0" max="200" step="1" value="50" />
+        </div>
+        <div class="dim small">App 当前：<span id="aText">0</span>/<span id="aLimitText">0</span></div>
+      </div>
+      <div class="chan" data-ch="B">
+        <label class="chk"><input type="checkbox" id="chB" /> 通道 B</label>
+        <div class="row">
+          <label class="dim">上限 <b id="ceilBval">50</b></label>
+          <input type="range" id="ceilB" min="0" max="200" step="1" value="50" />
+        </div>
+        <div class="dim small">App 当前：<span id="bText">0</span>/<span id="bLimitText">0</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 右：响应设置 -->
+  <section class="card" id="card-set">
+    <h2>声音 → 强度</h2>
+    <div class="row">
+      <label class="dim">模式</label>
+      <select id="modeSel">
+        <option value="beat">节拍跟随：连续随声音，锁到节拍器时每拍加重</option>
+        <option value="hybrid">混合：连续随声音 + 节拍/瞬态都强调</option>
+        <option value="follow">平滑跟随：纯音量（不追节拍）</option>
+      </select>
+    </div>
+    <p id="modeHint" class="dim small"></p>
+    <div class="row">
+      <label class="dim">质感</label>
+      <select id="styleSel">
+        <option value="deep">低沉撞击</option>
+        <option value="mid">标准</option>
+        <option value="tingle">高频细麻</option>
+      </select>
+    </div>
+    <div class="row"><label class="dim">门限抬高 <b id="threshVal">0</b> dB</label>
+      <input type="range" id="thresh" min="0" max="30" step="0.5" value="0" /></div>
+    <div class="row"><label class="dim">灵敏度 <b id="sensVal">45</b></label>
+      <input type="range" id="sens" min="0" max="100" step="1" value="45" /></div>
+    <div class="row"><label class="dim">释放 <b id="relMsVal">220</b> ms</label>
+      <input type="range" id="relMs" min="40" max="800" step="10" value="220" /></div>
+    <div class="row"><button id="recalBtn">重新校准底噪</button>
+      <span class="dim small">开始播放前静音 1 秒再点。</span></div>
+  </section>
+
+  <!-- 电平 -->
+  <section class="card" id="card-meter">
+    <h2>电平 / 输出</h2>
+    <div class="row labelrow"><span>电脑声音</span><span class="mono" id="dbText">-120 dB</span></div>
+    <div class="meter"><div id="dbFill" class="fill"></div><div id="gateTick" class="tick"></div></div>
+    <div class="row labelrow"><span>输出幅度</span><span class="mono" id="ampText">0%</span></div>
+    <div class="meter thin"><div id="ampFill" class="fill amp"></div></div>
+    <div class="meterlabel">
+      <span class="mono small">A <span id="outAText">0</span></span>
+      <span class="mono small">B <span id="outBText">0</span></span>
+      <span class="mono small">重音 <span id="kickText">0</span></span>
+      <span class="mono small">节拍 <span id="lockText">未锁定</span></span>
+      <span class="mono small">BPM <span id="bpmText">-</span></span>
+    </div>
+    <div class="dim small" id="diagText"></div>
+  </section>
+
+  <!-- 音频设备 -->
+  <section class="card" id="card-audio">
+    <h2>音频来源</h2>
+    <div class="row">
+      <select id="devSel"></select>
+      <button id="applyDevBtn">应用</button>
+    </div>
+    <p class="dim small">「自动」= 抓系统默认播放的声音（WASAPI 环回）。若要只抓某个应用的输出，把它改输出到
+      <b>VB-CABLE / Voicemeeter</b> 虚拟声卡，再在这里选对应输入。</p>
+  </section>
+</main>
+
+<div class="warnbar">首次使用请从 <b>低上限（如 10~20）</b> 开始，先在 DG-Lab App 里自测小强度再逐步加大。安全第一。</div>
+<script src="/static/app.js" defer></script>
+</body>
+</html>

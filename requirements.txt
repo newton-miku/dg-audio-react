@@ -1,0 +1,8 @@
+# DG-LAB 郊狼3 声音响应控制
+pydglab-ws>=0.5
+pyaudiowpatch>=0.2.12
+sounddevice>=0.4.6
+numpy>=1.26
+aiohttp>=3.9
+qrcode>=7.4
+Pillow>=10.0

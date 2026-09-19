@@ -33,8 +33,13 @@ class State:
         self.outB: float = 0.0
         self.bpm: float | None = None
         self.locked: bool = False          # 节拍器是否已锁定
+        self.low_on: bool = False          # 最近节拍是否来自低频（底鼓/贝斯）
         self.boostA: int = 0               # 自动增强已加值（通道 A）
         self.boostB: int = 0
+        self.freqA: int = 0                # 当前输出频率（Hz，通道 A/B）
+        self.freqB: int = 0
+        self.spec: list = []               # 输入频谱（最新一帧，0..1 × 40 段）
+        self.scope: list = []              # 输出波形历史 [(ampA, ampB, fA, fB, beat), ...]
         # 波形发送状态（诊断）
         self.pulses_sent: int = 0      # 累计下发脉冲条数
         self.wave_on: bool = False     # 最近 ~0.8s 内是否在发波形
@@ -64,8 +69,13 @@ class State:
                 "outB": round(self.outB, 3),
                 "bpm": self.bpm,
                 "locked": self.locked,
+                "low_on": self.low_on,
                 "boostA": self.boostA,
                 "boostB": self.boostB,
+                "freqA": self.freqA,
+                "freqB": self.freqB,
+                "spec": self.spec,
+                "scope": self.scope,
                 "pulses_sent": self.pulses_sent,
                 "wave_on": self.wave_on,
                 "error": self.error,

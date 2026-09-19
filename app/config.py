@@ -18,10 +18,16 @@ DEFAULTS: dict = {
     "web_port": 8900,
     # 音频设备："" = 自动选"默认播放设备"的环回端点（系统声音）
     "device": "",
-    # 响应模式: beat(节拍跟随,默认,寸止用) / hybrid / follow
+    # A/B 是否联动（联动时 B 跟随 A 的设置）
+    "ab_link": True,
+    # 每通道独立：响应模式 / 质感 / 拍形  (beat|hybrid|follow) (deep|mid|tingle) (sharp|double|triple|knead|swell)
+    "modeA": "beat", "modeB": "beat",
+    "styleA": "mid", "styleB": "tingle",
+    "shapeA": "sharp", "shapeB": "double",
+    # 旧版全局键（仅用于读取老配置时迁移）
     "mode": "beat",
-    # 加重时的"拍形"：sharp/double/triple/knead/swell
     "beat_shape": "sharp",
+    "style": "mid",
     # 通道
     "chA": True,
     "chB": True,
@@ -68,6 +74,23 @@ class Config:
             for k, v in data.items():
                 if k in DEFAULTS:
                     self.d[k] = v
+            self._migrate(data)
+
+    def _migrate(self, data: dict) -> None:
+        """老配置只有全局 mode/style/beat_shape：迁移到 A，并让联动时 B 也一致。"""
+        if any(k in data for k in ("modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB")):
+            return
+        legacy = {"mode": "modeA", "style": "styleA", "beat_shape": "shapeA"}
+        hit = False
+        for old, new in legacy.items():
+            if old in data:
+                v = self.d.get(new)
+                self.d[new] = data[old]
+                self.d[new[:-1] + "B"] = data[old]
+                hit = True
+        if hit:
+            self.d["ab_link"] = True
+            self.save()
 
     def save(self) -> None:
         try:

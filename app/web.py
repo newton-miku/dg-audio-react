@@ -15,10 +15,13 @@ WEBUI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui")
 
 # 允许前端保存的配置键
 CONFIG_KEYS = {
-    "mode", "beat_shape", "style", "chA", "chB", "ceilA", "ceilB",
+    "chA", "chB", "ceilA", "ceilB",
     "sensitivity", "release_ms",
     "threshold_auto", "threshold_db",
     "boost_on", "boost_mode", "safety_cap",
+    # 每通道独立：模式/质感/拍形 + 联动
+    "ab_link",
+    "modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB",
 }
 
 _qr_cache: dict = {"text": None, "png": b""}

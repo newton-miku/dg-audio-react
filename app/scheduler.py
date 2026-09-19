@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 
 from pydglab_ws import Channel, StrengthOperationType
 
 from .analyzer import Analyzer
 from .feed import LevelFeed
-from .mapper import FOLLOW_SHAPE, Mapper
+from .mapper import FOLLOW_SHAPE, STYLES, Mapper
 from .state import State
 
 PULSE_S = 0.100
@@ -25,6 +26,7 @@ HOLD_S_LOW = 0.06
 RAMP_S = 0.6           # 启动缓升时长
 FREQ_MIN = 10
 FREQ_MAX = 240
+SCOPE_SLOTS = 60       # 输出波形示波器保留的槽数（10 槽/秒 -> 6 秒）
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
@@ -84,12 +86,15 @@ class Scheduler:
         self._applied = {"A": None, "B": None}
         self._pulses_sent: int = 0
         self._last_send_t: float = 0.0
-        self._emitted_beat_t: float = 0.0
         self._onset_amp: float = 0.0   # 未锁定时用于 hybrid 瞬态强调的衰减包络
+        self._beat_grid_t: float | None = None   # 最近一次拍点对齐到的槽起点
         # 自动增强状态
         self._boost = {"A": 0, "B": 0}
         self._hot_s: float = 0.0
         self._cool_s: float = 0.0
+        # 输出波形历史（供界面示波器）：(ampA, ampB, freqA, freqB, beat)
+        self._scope: deque = deque(maxlen=SCOPE_SLOTS)
+        self._last_freq: tuple = (0, 0)   # 停止后仍显示最后频率
 
     # ---------- 外部控制 ----------
     def schedule_recal(self) -> None:
@@ -159,22 +164,35 @@ class Scheduler:
 
         await self._apply_strengths(a_on, b_on)
 
-        # ---------- 连续跟随基准（强度、频率都随音量）----------
+        # ---------- 每通道独立配置（A/B 联动时 B 跟随 A）----------
+        link = bool(cfg.get("ab_link", True))
         if self._last_map_t is None:
             self._last_map_t = now
             self._enable_t = now
         dt = min(0.5, max(0.02, now - self._last_map_t))
         self._last_map_t = now
-        mode = cfg.get("mode", "beat")
-        res = self.mapper.step(snap, "follow", float(cfg.get("sensitivity", 45)),
-                               cfg.get("style", "mid"), dt)
-        amp_ref = res["amp_follow"]               # 0..1 音量包络
+        # 只取"音量->幅度"包络（与质感/模式无关）
+        res = self.mapper.step(snap, "follow", float(cfg.get("sensitivity", 45)), "mid", dt)
+        amp_ref = _clamp(res["amp_follow"], 0.0, 1.0)     # 0..1 音量包络
         ramp = 1.0 if self._enable_t is None else min(1.0, (now - self._enable_t) / RAMP_S)
 
-        # 当前动态频率：越响越高频（质感档的低频为底，向高频档靠）
-        span = max(1, res["kick_hz"] - res["freq_base"])
-        fx = int(_clamp(round(res["freq_base"] + span * _clamp(amp_ref, 0.0, 1.0)), FREQ_MIN, FREQ_MAX))
-        fx = _clamp(fx, FREQ_MIN, FREQ_MAX)
+        def chan_cfg(ch: str):
+            """该通道 (模式, 拍形, 持续频率, 动态频率)。"""
+            src = "A" if (ch == "A" or link) else "B"
+            m = str(cfg.get(f"mode{src}", "beat"))
+            if m == "audio":
+                m = "follow"
+            shape_c = str(cfg.get(f"shape{src}", "sharp"))
+            style_c = str(cfg.get(f"style{src}", "mid"))
+            _, sustain_hz, kick_hz = STYLES.get(style_c, STYLES["mid"])
+            span_c = max(1, kick_hz - sustain_hz)
+            # 越响越高频：低频档为底，向该档的攻击频率靠
+            fx_c = int(_clamp(round(sustain_hz + span_c * amp_ref), FREQ_MIN, FREQ_MAX))
+            return m, shape_c, int(sustain_hz), fx_c
+
+        chanA = chan_cfg("A")
+        chanB = chan_cfg("B")
+        self._last_freq = (chanA[3], chanB[3])
 
         # 自动增强/恢复（达标升一级；条件消失按模式恢复或保持）
         self._update_boost(amp_ref, dt)
@@ -188,32 +206,23 @@ class Scheduler:
                 self._onset_amp = 0.0
 
         locked = snap.locked
+        base_acc = min(1.0, 0.60 + amp_ref * 0.5)   # 每拍加重保底幅度
+        transient = self._onset_amp                 # hybrid 的瞬态强调
 
         def follow_strengths(a: float) -> tuple:
             return tuple(int(_clamp(FOLLOW_SHAPE[i] * a * ramp, 0.0, 1.0) * 100) for i in range(4))
 
-        # 强调源：节拍(锁定)按"拍形"波形 + hybrid 的瞬态强调
-        bshape = str(cfg.get("beat_shape", "sharp"))
-
-        def slot_accent(st: float):
-            """返回该槽要用的加重幅度(0..1)；无则 None。"""
-            if mode not in ("beat", "hybrid"):
+        def slot_acc(mode_c: str, shape_c: str, hit_d: float | None):
+            """该通道在本槽的加重幅度(0..1)；无则 None。"""
+            if mode_c not in ("beat", "hybrid"):
                 return None
             eff = None
-            if locked:
-                base_acc = min(1.0, 0.60 + amp_ref * 0.5)   # 保底够明显，仍随音量微调
-                in_slot = self.analyzer.beats_between(st, st + PULSE_S)
-                if in_slot:
-                    d = 0.0
-                else:
-                    b0 = self.analyzer.beat_before(st)
-                    d = (st - b0) if b0 is not None else None
-                if d is not None and d < SHAPE_MAX:
-                    v = base_acc * _shape_level(bshape, d)
-                    if v >= 0.12:
-                        eff = v
-            if mode == "hybrid" and self._onset_amp > 0.05 and st <= now + 0.35:
-                tacc = min(1.0, self._onset_amp * 1.15 + 0.15)
+            if hit_d is not None and hit_d < SHAPE_MAX:
+                v = base_acc * _shape_level(shape_c, hit_d)
+                if v >= 0.12:
+                    eff = v
+            if mode_c == "hybrid" and transient > 0.05:
+                tacc = min(1.0, transient * 1.15 + 0.15)
                 eff = tacc if eff is None else max(eff, tacc)
             return eff
 
@@ -223,25 +232,54 @@ class Scheduler:
         batchA: list = []
         batchB: list = []
         pushed = 0
-        peak_amp = amp_ref * ramp
+        peakA = peakB = amp_ref * ramp
         while (self._q_end - now) < HOLD_S_LOW and pushed < 5:
             pushed += 1
             st = self._q_end
-            a_strength = amp_ref
-            acc = slot_accent(st)
-            if acc is not None:
-                q = int(_clamp(acc * ramp, 0.0, 1.0) * 100)
-                f, s = (fx, fx, fx, fx), (q, q, q, q)
-                a_strength = acc
+
+            # 节拍对齐到 100ms 槽网格：拍落在哪个格，那个格就是拍形起点（力度稳定，
+            # 后续格子按 d 铺开形状的尾巴）。未锁定时清空。
+            hit_d = None
+            if locked:
+                b = self.analyzer.beat_before(st + PULSE_S)
+                if b is not None and b >= st:
+                    self._beat_grid_t = st
+                if self._beat_grid_t is not None:
+                    d = st - self._beat_grid_t
+                    if 0.0 <= d < SHAPE_MAX:
+                        hit_d = d
             else:
-                f = (fx, fx, fx, fx)
-                s = follow_strengths(amp_ref)
-            if a_strength * ramp > peak_amp:
-                peak_amp = a_strength * ramp
-            if a_on:
-                batchA.append((f, s))
-            if b_on:
-                batchB.append((f, s))
+                self._beat_grid_t = None
+            beat_slot = hit_d == 0.0
+
+            lvA = lvB = 0.0
+            for ch, mode_c, shape_c, _sustain_c, fx_c in (("A", *chanA), ("B", *chanB)):
+                acc = slot_acc(mode_c, shape_c, hit_d)
+                if acc is not None:
+                    q = int(_clamp(acc * ramp, 0.0, 1.0) * 100)
+                    f, s = (fx_c, fx_c, fx_c, fx_c), (q, q, q, q)
+                    lvl = acc * ramp
+                else:
+                    f = (fx_c, fx_c, fx_c, fx_c)
+                    s = follow_strengths(amp_ref)
+                    lvl = amp_ref * ramp
+                if ch == "A":
+                    lvA = lvl
+                    peakA = max(peakA, lvl)
+                    if a_on:
+                        batchA.append((f, s))
+                else:
+                    lvB = lvl
+                    peakB = max(peakB, lvl)
+                    if b_on:
+                        batchB.append((f, s))
+            # 记录输出波形（供界面示波器）
+            self._scope.append((
+                int(_clamp(lvA, 0.0, 1.0) * 100),
+                int(_clamp(lvB, 0.0, 1.0) * 100),
+                chanA[3], chanB[3],
+                1 if beat_slot else 0,
+            ))
             self._q_end += PULSE_S
         if pushed == 0:
             self._q_end = max(self._q_end, now + HOLD_S_LOW)
@@ -251,23 +289,22 @@ class Scheduler:
         if batchB:
             await self._send_batch(Channel.B, batchB)
 
-        self._publish(snap, amp=peak_amp, kick=self._onset_amp * ramp,
-                      outA=peak_amp if a_on else 0.0, outB=peak_amp if b_on else 0.0,
-                      bound=True, bpm=snap.bpm,
-                      status=self._status_text(mode, locked, bound, enabled, snap.bpm))
+        self._publish(snap, amp=max(peakA, peakB), kick=self._onset_amp * ramp,
+                      outA=peakA if a_on else 0.0, outB=peakB if b_on else 0.0,
+                      bound=True, bpm=snap.bpm, freqA=chanA[3], freqB=chanB[3],
+                      status=self._status_text(chanA[0], chanB[0], locked, bound, enabled, snap.bpm))
 
-    def _status_text(self, mode: str, locked: bool, bound: bool, enabled: bool, bpm) -> str:
+    def _status_text(self, mode_a: str, mode_b: str, locked: bool, bound: bool, enabled: bool, bpm) -> str:
         if not bound:
             return "等待 App 扫码绑定…"
         base = f"已绑定 {self.state.target}"
         if not enabled:
             return base + " · 已停止"
-        if mode in ("follow", "audio"):
+        if mode_a == "follow" and mode_b == "follow":
             return base + " · 普通音频跟随运行中"
         if locked:
-            what = "节拍跟随" if mode == "beat" else "混合"
-            return f"{base} · {what} · 锁定 {round(bpm)} BPM"
-        return base + (f" · 节拍检测中…（未锁定时仅连续跟随）" if mode == "beat" else " · 运行中")
+            return f"{base} · 节拍锁定 {round(bpm)} BPM"
+        return base + " · 节拍检测中…（未锁定时仅连续跟随）"
 
     # ---------- 自动增强 ----------
     def reset_boost(self) -> None:
@@ -412,12 +449,18 @@ class Scheduler:
             pass
 
     # ---------- 遥测 ----------
-    def _publish(self, snap, amp, kick, outA, outB, bound, status=None, bpm=None) -> None:
+    def _publish(self, snap, amp, kick, outA, outB, bound, status=None, bpm=None,
+                 freqA=0, freqB=0) -> None:
         err = self.capture.error if self.capture else ""
         st = status or self.state.status
         cap = self.capture
         if cap is not None and cap.silent and self.state.enabled:
             st += " · 无声/等待播放（环回静音时会停流）"
+        spec = self.feed.spec() if self.feed is not None else []
+        if not freqA:
+            freqA = self._last_freq[0]
+        if not freqB:
+            freqB = self._last_freq[1]
         base = dict(
             level_db=round(snap.env_db, 1),
             gate_db=round(snap.gate_db, 1),
@@ -427,10 +470,14 @@ class Scheduler:
             outB=round(outB, 3),
             bpm=bpm,
             locked=bool(snap.locked),
+            low_on=bool(getattr(snap, "low_on", False)),
             boostA=int(self._boost.get("A", 0)),
             boostB=int(self._boost.get("B", 0)),
             pulses_sent=self._pulses_sent,
             wave_on=(time.monotonic() - self._last_send_t) < 0.8,
+            freqA=int(freqA), freqB=int(freqB),
+            spec=spec,
+            scope=list(self._scope),
             status=st,
         )
         if err:

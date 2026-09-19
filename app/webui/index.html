@@ -93,33 +93,59 @@
   <!-- 右：响应设置 -->
   <section class="card" id="card-set">
     <h2>声音 → 强度</h2>
-    <div class="row">
-      <label class="dim help" data-help="普通音频=无节拍也随声音；节拍跟随=追踪视频节拍器并在每拍加重；混合=另加瞬态强调。">模式</label>
-      <select id="modeSel">
-        <option value="beat">节拍跟随：连续随声音，锁到节拍器时每拍加重</option>
-        <option value="hybrid">混合：连续随声音 + 节拍/瞬态都强调</option>
-        <option value="follow">普通音频（无节拍·随声音）：强度/频率跟声音实时变</option>
-      </select>
+    <div class="row chk">
+      <input type="checkbox" id="abLink" checked />
+      <label class="help" data-help="勾选：A/B 用同一套模式/质感/拍形（B 跟随 A）。取消后可给两个通道分别设置，例如 A 跟声音、B 打节拍。">A / B 通道联动（同一套设置）</label>
+    </div>
+    <div class="grid2">
+      <div class="chan">
+        <div class="chanhead">通道 A</div>
+        <div class="row"><label class="dim">模式</label>
+          <select id="modeA" class="csel">
+            <option value="beat">节拍跟随</option>
+            <option value="hybrid">混合</option>
+            <option value="follow">普通音频</option>
+          </select></div>
+        <div class="row"><label class="dim">质感</label>
+          <select id="styleA" class="csel">
+            <option value="deep">低沉撞击</option>
+            <option value="mid">标准</option>
+            <option value="tingle">高频细麻</option>
+          </select></div>
+        <div class="row"><label class="dim">拍形</label>
+          <select id="shapeA" class="csel">
+            <option value="sharp">单击</option>
+            <option value="double">双击</option>
+            <option value="triple">三连</option>
+            <option value="knead">长揉</option>
+            <option value="swell">呼吸渐强</option>
+          </select></div>
+      </div>
+      <div class="chan">
+        <div class="chanhead">通道 B</div>
+        <div class="row"><label class="dim">模式</label>
+          <select id="modeB" class="csel">
+            <option value="beat">节拍跟随</option>
+            <option value="hybrid">混合</option>
+            <option value="follow">普通音频</option>
+          </select></div>
+        <div class="row"><label class="dim">质感</label>
+          <select id="styleB" class="csel">
+            <option value="deep">低沉撞击</option>
+            <option value="mid">标准</option>
+            <option value="tingle">高频细麻</option>
+          </select></div>
+        <div class="row"><label class="dim">拍形</label>
+          <select id="shapeB" class="csel">
+            <option value="sharp">单击</option>
+            <option value="double">双击</option>
+            <option value="triple">三连</option>
+            <option value="knead">长揉</option>
+            <option value="swell">呼吸渐强</option>
+          </select></div>
+      </div>
     </div>
     <p id="modeHint" class="dim small"></p>
-    <div class="row">
-      <label class="dim help" data-help="波形频率档：低沉撞击=低频沉闷扎；标准=均衡；高频细麻=细麻锐利。">质感</label>
-      <select id="styleSel">
-        <option value="deep">低沉撞击</option>
-        <option value="mid">标准</option>
-        <option value="tingle">高频细麻</option>
-      </select>
-    </div>
-    <div class="row">
-      <label class="dim help" data-help="锁到节拍后，每一拍的加重波形：单击=干脆一下；双击=重+回弹；三连；长揉=持续按揉半拍；呼吸渐强=渐强到顶再落。">拍形（每拍加重用）</label>
-      <select id="beatShape">
-        <option value="sharp">单击</option>
-        <option value="double">双击（重+回弹）</option>
-        <option value="triple">三连</option>
-        <option value="knead">长揉</option>
-        <option value="swell">呼吸渐强</option>
-      </select>
-    </div>
     <div class="row chk">
       <input type="checkbox" id="gateAuto" checked /><label for="gateAuto">门限跟随环境（自动底噪）</label>
     </div>
@@ -151,6 +177,22 @@
       <span class="mono small">BPM <span id="bpmText">-</span></span>
     </div>
     <div class="dim small" id="diagText"></div>
+  </section>
+
+  <!-- 波形 / 频谱 -->
+  <section class="card" id="card-scope">
+    <h2>输出波形 / 输入频谱</h2>
+    <div class="row labelrow">
+      <span>输出波形（最近约 6 秒）</span>
+      <span class="mono small"><b class="cA">■</b> A <span id="freqAText">-</span>Hz ·
+        <b class="cB">■</b> B <span id="freqBText">-</span>Hz</span>
+    </div>
+    <canvas id="scope" class="viz"></canvas>
+    <div class="row labelrow">
+      <span>输入频谱（电脑声音）</span><span class="dim small">← 低频 · 高频 →</span>
+    </div>
+    <canvas id="spectrum" class="viz short"></canvas>
+    <p class="dim small">波形每格 100ms：柱高=输出强度，细线=输出频率，橙点=节拍加重。</p>
   </section>
 
   <!-- 音频设备 -->

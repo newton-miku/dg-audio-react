@@ -2,8 +2,9 @@
 
 const $ = (id) => document.getElementById(id);
 
-const cfgKeys = ["mode", "beat_shape", "style", "chA", "chB", "ceilA", "ceilB", "sensitivity", "release_ms",
-  "threshold_auto", "threshold_db", "boost_on", "boost_mode", "safety_cap"];
+const cfgKeys = ["chA", "chB", "ceilA", "ceilB", "sensitivity", "release_ms",
+  "threshold_auto", "threshold_db", "boost_on", "boost_mode", "safety_cap",
+  "ab_link", "modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB"];
 
 let saveTimer = null;
 function scheduleSave() {
@@ -13,9 +14,6 @@ function scheduleSave() {
 
 function controlSnapshot() {
   return {
-    mode: $("modeSel").value,
-    beat_shape: $("beatShape").value,
-    style: $("styleSel").value,
     chA: $("chA").checked,
     chB: $("chB").checked,
     ceilA: +$("ceilA").value,
@@ -27,6 +25,10 @@ function controlSnapshot() {
     boost_on: $("boostOn").checked,
     boost_mode: $("boostMode").value,
     safety_cap: +$("safeCap").value,
+    ab_link: $("abLink").checked,
+    modeA: $("modeA").value, modeB: $("modeB").value,
+    styleA: $("styleA").value, styleB: $("styleB").value,
+    shapeA: $("shapeA").value, shapeB: $("shapeB").value,
   };
 }
 
@@ -58,15 +60,99 @@ function showError(msg) {
   $("errorLine").textContent = msg || "";
 }
 
-function updateModeHint(mode) {
+const MODE_TXT = { beat: "节拍跟随", hybrid: "混合", follow: "普通音频" };
+
+function updateModeHint() {
+  const link = $("abLink").checked;
+  const mA = $("modeA").value;
+  const mB = link ? mA : $("modeB").value;
   const el = $("modeHint");
-  if (mode === "beat") {
-    el.textContent = "输出一直存在、强弱/频率随声音实时变；检测到视频里的节拍器后，每一拍点会额外加重一拍（状态栏显示锁定的 BPM）。";
-  } else if (mode === "hybrid") {
-    el.textContent = "连续跟随为底，锁定节拍时每拍加重，未锁定时响亮的瞬态/重音也会轻强调——更适合音乐。";
+  const what = (m) => MODE_TXT[m] || m;
+  const tail = "【节拍跟随】会自动追踪节拍——不只节拍器，音乐里的强拍（底鼓/军鼓）也算；"
+    + "锁不上时仍会连续随声音输出，只是没有“每拍加重”。";
+  if (link) {
+    el.textContent = "A、B 都用「" + what(mA) + "」。" + (mA === "follow" ? "普通音频：输出连续、强度与频率随声音实时变，无节拍也能用。" : tail);
   } else {
-    el.textContent = "普通音频：没有固定节拍也能用——强度与频率都随声音实时变（说话/音乐/电影都行）。";
+    el.textContent = "A = " + what(mA) + "，B = " + what(mB) + "（两通道各自独立）。";
   }
+}
+
+// ---------- 可视化：输出波形 + 输入频谱 ----------
+function fitCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(80, cv.clientWidth || 600);
+  const h = Math.max(40, cv.clientHeight || 120);
+  const W = Math.round(w * dpr), H = Math.round(h * dpr);
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+function drawScope(scope, freqA, freqB) {
+  const cv = $("scope");
+  if (!cv || !cv.getContext) return;
+  const { ctx, w, h } = fitCanvas(cv);
+  ctx.clearRect(0, 0, w, h);
+  const n = 60;
+  const laneH = h / 2 - 3;
+  // 中缝
+  ctx.fillStyle = "rgba(255,255,255,.09)";
+  ctx.fillRect(0, h / 2 - 1, w, 1);
+  const arr = (scope || []).slice(-n);
+  const off = n - arr.length;
+  const slotW = w / n;
+  const bw = Math.max(1, slotW - 0.8);
+  const aTop = h / 2 - 3, bBase = h - 2;
+  for (let i = 0; i < arr.length; i++) {
+    const e = arr[i];
+    const x = (off + i) * slotW;
+    const ha = Math.max(0, Math.min(1, (e[0] || 0) / 100)) * laneH;
+    const hb = Math.max(0, Math.min(1, (e[1] || 0) / 100)) * laneH;
+    ctx.fillStyle = "rgba(110,168,255,.80)";
+    if (ha > 0) ctx.fillRect(x, aTop - ha, bw, ha);
+    ctx.fillStyle = "rgba(255,77,109,.80)";
+    if (hb > 0) ctx.fillRect(x, bBase - hb, bw, hb);
+    if (e[4]) { ctx.fillStyle = "rgba(255,190,60,.95)"; ctx.fillRect(x, h / 2 - 4, bw, 2); }
+  }
+  // 频率线
+  const line = (idx, base, style) => {
+    if (arr.length < 2) return;
+    ctx.strokeStyle = style; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = 0; i < arr.length; i++) {
+      const x = (off + i) * slotW + slotW / 2;
+      const y = base - Math.max(0, Math.min(1, (arr[i][idx] || 0) / 240)) * laneH;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  };
+  line(2, aTop, "rgba(230,233,239,.40)");
+  line(3, bBase, "rgba(230,233,239,.28)");
+  $("freqAText").textContent = freqA || "-";
+  $("freqBText").textContent = freqB || "-";
+}
+
+function drawSpectrum(spec) {
+  const cv = $("spectrum");
+  if (!cv || !cv.getContext) return;
+  const { ctx, w, h } = fitCanvas(cv);
+  ctx.clearRect(0, 0, w, h);
+  const arr = spec || [];
+  if (!arr.length) return;
+  const n = arr.length;
+  const bw = w / n;
+  for (let i = 0; i < n; i++) {
+    const v = Math.max(0, Math.min(1, arr[i]));
+    const bh = v * (h - 3);
+    const t = i / Math.max(1, n - 1);
+    const r = Math.round(110 + (255 - 110) * t);
+    const g = Math.round(168 + (77 - 168) * t);
+    const b = Math.round(255 + (109 - 255) * t);
+    ctx.fillStyle = "rgba(" + r + "," + g + "," + b + ",.85)";
+    ctx.fillRect(i * bw, h - bh, Math.max(1, bw - 1), bh);
+  }
+  ctx.fillStyle = "rgba(255,255,255,.10)";
+  ctx.fillRect(0, h - 1, w, 1);
 }
 
 function dbToPct(db) { return Math.max(0, Math.min(100, ((db + 120) / 120) * 100)); }
@@ -148,12 +234,18 @@ function render(state) {
   $("outBText").textContent = Math.round((state.outB || 0) * 100);
   $("kickText").textContent = Math.round((state.kick || 0) * 100);
   $("bpmText").textContent = state.bpm ? Math.round(state.bpm) : "-";
-  $("lockText").textContent = state.locked && state.bpm ? Math.round(state.bpm) + " BPM" : "未锁定";
+  $("lockText").textContent = state.locked && state.bpm
+    ? Math.round(state.bpm) + " BPM" + (state.low_on ? "·低频" : "")
+    : "未锁定";
   const ps = state.pulses_sent || 0;
   $("diagText").textContent = (state.wave_on ? "◆ 正在下发波形 · 累计 " : "累计已发波形 ") + ps + " 条";
   $("boostAText").textContent = state.boostA || 0;
   $("boostBText").textContent = state.boostB || 0;
   if ($("gateAuto") && $("gateAuto").checked) $("threshVal").textContent = "自动";
+
+  // 可视化
+  drawScope(state.scope, state.freqA, state.freqB);
+  drawSpectrum(state.spec);
 }
 
 // ---------- WebSocket 遥测 ----------
@@ -184,12 +276,23 @@ async function init() {
   bindSlider("ceilA", "ceilAval"); bindSlider("ceilB", "ceilBval");
   bindSlider("thresh", "threshVal"); bindSlider("sens", "sensVal"); bindSlider("relMs", "relMsVal");
   bindSlider("safeCap", "safeCapVal");
-  ["modeSel", "styleSel", "beatShape"].forEach((id) => {
-    $(id).addEventListener("change", () => {
-      if (id === "modeSel") updateModeHint($(id).value);
-      scheduleSave();
+
+  // A/B 联动：联动时 B 跟随 A 且不可单独改
+  const linkEl = $("abLink");
+  const B_KEYS = [["modeB", "modeA"], ["styleB", "styleA"], ["shapeB", "shapeA"]];
+  const syncLink = () => {
+    const link = linkEl.checked;
+    B_KEYS.forEach(([b, a]) => {
+      $(b).disabled = link;
+      if (link) $(b).value = $(a).value;
     });
+  };
+  linkEl.addEventListener("change", () => { syncLink(); updateModeHint(); scheduleSave(); });
+  ["modeA", "styleA", "shapeA"].forEach((id) => {
+    $(id).addEventListener("change", () => { syncLink(); updateModeHint(); scheduleSave(); });
   });
+  B_KEYS.forEach(([b]) => $(b).addEventListener("change", () => { updateModeHint(); scheduleSave(); }));
+
   ["chA", "chB"].forEach((id) => {
     $(id).addEventListener("change", scheduleSave);
   });
@@ -254,10 +357,15 @@ async function init() {
   // 读配置 & 设备
   try {
     const cfg = await fetch("/api/config").then((r) => r.json());
-    $("modeSel").value = cfg.mode || "beat";
-    updateModeHint(cfg.mode || "beat");
-    $("styleSel").value = cfg.style || "mid";
-    $("beatShape").value = cfg.beat_shape || "sharp";
+    $("modeA").value = cfg.modeA || cfg.mode || "beat";
+    $("styleA").value = cfg.styleA || cfg.style || "mid";
+    $("shapeA").value = cfg.shapeA || cfg.beat_shape || "sharp";
+    $("modeB").value = cfg.modeB || cfg.mode || "beat";
+    $("styleB").value = cfg.styleB || cfg.style || "mid";
+    $("shapeB").value = cfg.shapeB || cfg.beat_shape || "sharp";
+    linkEl.checked = cfg.ab_link !== false;
+    syncLink();
+    updateModeHint();
     $("chA").checked = !!cfg.chA; $("chB").checked = !!cfg.chB;
     $("ceilA").value = cfg.ceilA; $("ceilAval").textContent = cfg.ceilA;
     $("ceilB").value = cfg.ceilB; $("ceilBval").textContent = cfg.ceilB;

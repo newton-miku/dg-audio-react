@@ -19,6 +19,7 @@ from .analyzer import Analyzer
 from .feed import LevelFeed
 from .mapper import FOLLOW_SHAPE, STYLES, Mapper
 from .state import State
+from . import waveforms
 
 PULSE_S = 0.100
 HOLD_S = 0.18          # 前视队列目标（秒）
@@ -95,6 +96,10 @@ class Scheduler:
         # 输出波形历史（供界面示波器）：(ampA, ampB, freqA, freqB, beat)
         self._scope: deque = deque(maxlen=SCOPE_SLOTS)
         self._last_freq: tuple = (0, 0)   # 停止后仍显示最后频率
+        # 官方波形回放位置（每通道独立）
+        self._wave_pos: dict = {"A": 0, "B": 0}
+        self._wave_used: dict = {"A": None, "B": None}
+        self._was_enabled: bool = False
 
     # ---------- 外部控制 ----------
     def schedule_recal(self) -> None:
@@ -157,6 +162,7 @@ class Scheduler:
             return
         if not enabled:
             self._q_end = None
+            self._was_enabled = False
             await self._set_zero_strength(now)
             self._publish(snap, amp=0.0, kick=0.0, outA=0.0, outB=0.0, bound=True,
                           status=f"已绑定 {self.state.target} · 已停止")
@@ -176,23 +182,9 @@ class Scheduler:
         amp_ref = _clamp(res["amp_follow"], 0.0, 1.0)     # 0..1 音量包络
         ramp = 1.0 if self._enable_t is None else min(1.0, (now - self._enable_t) / RAMP_S)
 
-        def chan_cfg(ch: str):
-            """该通道 (模式, 拍形, 持续频率, 动态频率)。"""
-            src = "A" if (ch == "A" or link) else "B"
-            m = str(cfg.get(f"mode{src}", "beat"))
-            if m == "audio":
-                m = "follow"
-            shape_c = str(cfg.get(f"shape{src}", "sharp"))
-            style_c = str(cfg.get(f"style{src}", "mid"))
-            _, sustain_hz, kick_hz = STYLES.get(style_c, STYLES["mid"])
-            span_c = max(1, kick_hz - sustain_hz)
-            # 越响越高频：低频档为底，向该档的攻击频率靠
-            fx_c = int(_clamp(round(sustain_hz + span_c * amp_ref), FREQ_MIN, FREQ_MAX))
-            return m, shape_c, int(sustain_hz), fx_c
-
-        chanA = chan_cfg("A")
-        chanB = chan_cfg("B")
-        self._last_freq = (chanA[3], chanB[3])
+        chanA = self._chan_plan("A", cfg, link)
+        chanB = self._chan_plan("B", cfg, link)
+        self._last_freq = (chanA["base"], chanB["base"])
 
         # 自动增强/恢复（达标升一级；条件消失按模式恢复或保持）
         self._update_boost(amp_ref, dt)
@@ -233,6 +225,12 @@ class Scheduler:
         batchB: list = []
         pushed = 0
         peakA = peakB = amp_ref * ramp
+        freqA_now = chanA["base"]
+        freqB_now = chanB["base"]
+        # 每次"开始"都把官方波形从头播
+        if not self._was_enabled:
+            self._wave_pos = {"A": 0, "B": 0}
+            self._was_enabled = True
         while (self._q_end - now) < HOLD_S_LOW and pushed < 5:
             pushed += 1
             st = self._q_end
@@ -253,31 +251,41 @@ class Scheduler:
             beat_slot = hit_d == 0.0
 
             lvA = lvB = 0.0
-            for ch, mode_c, shape_c, _sustain_c, fx_c in (("A", *chanA), ("B", *chanB)):
-                acc = slot_acc(mode_c, shape_c, hit_d)
-                if acc is not None:
-                    q = int(_clamp(acc * ramp, 0.0, 1.0) * 100)
-                    f, s = (fx_c, fx_c, fx_c, fx_c), (q, q, q, q)
-                    lvl = acc * ramp
-                else:
-                    f = (fx_c, fx_c, fx_c, fx_c)
-                    s = follow_strengths(amp_ref)
-                    lvl = amp_ref * ramp
+            for ch, plan in (("A", chanA), ("B", chanB)):
+                acc = slot_acc(plan["mode"], plan["shape"], hit_d)
+                lvl = (acc * ramp) if acc is not None else (amp_ref * ramp)
+                f = s = None
+                freq_now = plan["base"]
+                if plan["src"] == "official":
+                    got = self._official_slot(ch, plan, lvl)
+                    if got is not None:
+                        f, s, freq_now = got
+                if f is None:                      # 自建映射
+                    if acc is not None:            # 撞击：高频、短促
+                        q = int(_clamp(acc * ramp, 0.0, 1.0) * 100)
+                        f, s = (plan["hit"],) * 4, (q, q, q, q)
+                        freq_now = plan["hit"]
+                    else:                          # 连续：低频跟随音量
+                        f = (plan["base"],) * 4
+                        s = follow_strengths(amp_ref)
+                        freq_now = plan["base"]
                 if ch == "A":
                     lvA = lvl
                     peakA = max(peakA, lvl)
+                    freqA_now = freq_now
                     if a_on:
                         batchA.append((f, s))
                 else:
                     lvB = lvl
                     peakB = max(peakB, lvl)
+                    freqB_now = freq_now
                     if b_on:
                         batchB.append((f, s))
             # 记录输出波形（供界面示波器）
             self._scope.append((
                 int(_clamp(lvA, 0.0, 1.0) * 100),
                 int(_clamp(lvB, 0.0, 1.0) * 100),
-                chanA[3], chanB[3],
+                freqA_now, freqB_now,
                 1 if beat_slot else 0,
             ))
             self._q_end += PULSE_S
@@ -291,8 +299,8 @@ class Scheduler:
 
         self._publish(snap, amp=max(peakA, peakB), kick=self._onset_amp * ramp,
                       outA=peakA if a_on else 0.0, outB=peakB if b_on else 0.0,
-                      bound=True, bpm=snap.bpm, freqA=chanA[3], freqB=chanB[3],
-                      status=self._status_text(chanA[0], chanB[0], locked, bound, enabled, snap.bpm))
+                      bound=True, bpm=snap.bpm, freqA=freqA_now, freqB=freqB_now,
+                      status=self._status_text(chanA["mode"], chanB["mode"], locked, bound, enabled, snap.bpm))
 
     def _status_text(self, mode_a: str, mode_b: str, locked: bool, bound: bool, enabled: bool, bpm) -> str:
         if not bound:
@@ -367,6 +375,43 @@ class Scheduler:
             await client.clear_pulses(Channel.A if ch == "A" else Channel.B)
         except Exception:  # noqa: BLE001
             pass
+
+    # ---------- 每通道配置 ----------
+    @staticmethod
+    def _chan_plan(ch: str, cfg: dict, link: bool) -> dict:
+        """该通道的输出计划：模式/拍形/频率档/波形来源（联动时 B 跟随 A）。"""
+        key = "A" if (ch == "A" or link) else "B"
+        m = str(cfg.get(f"mode{key}", "beat"))
+        if m == "audio":
+            m = "follow"
+        src = str(cfg.get(f"src{key}", "map"))
+        if src not in ("map", "official"):
+            src = "map"
+        style_c = str(cfg.get(f"style{key}", "mid"))
+        _, base_hz, hit_hz = STYLES.get(style_c, STYLES["mid"])
+        return {
+            "mode": m,
+            "shape": str(cfg.get(f"shape{key}", "sharp")),
+            "base": int(base_hz),      # 连续输出用低频（低频通常一直有 -> 细麻）
+            "hit": int(hit_hz),        # 撞击用高频（高频稀少 -> 间断）
+            "src": src,
+            "wave": str(cfg.get(f"wave{key}", "BREATHING")),
+        }
+
+    def _official_slot(self, ch: str, plan: dict, level: float):
+        """按官方波形取下一槽 -> (freq4, strength4, 显示用频率)。序列空则返回 None。"""
+        seq = waveforms.pulses(plan["wave"])
+        if not seq:
+            return None
+        if self._wave_used.get(ch) != plan["wave"]:
+            self._wave_used[ch] = plan["wave"]
+            self._wave_pos[ch] = 0
+        pos = self._wave_pos.get(ch, 0) % len(seq)
+        self._wave_pos[ch] = pos + 1
+        f0, s0 = seq[pos]
+        lvl = _clamp(level, 0.0, 1.0)
+        s = tuple(int(_clamp(v * lvl, 0.0, 100.0)) for v in s0)
+        return tuple(f0), s, int(f0[0])
 
     async def _send_batch(self, ch: Channel, batch: list) -> None:
         client = self.dg.client

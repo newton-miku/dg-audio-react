@@ -19,8 +19,9 @@ CONFIG_KEYS = {
     "sensitivity", "release_ms",
     "threshold_auto", "threshold_db",
     "boost_on", "boost_mode", "safety_cap",
-    # 每通道独立：模式/质感/拍形 + 联动
+    # 每通道独立：波形来源/官方波形/模式/质感/拍形 + 联动
     "ab_link",
+    "srcA", "srcB", "waveA", "waveB",
     "modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB",
 }
 
@@ -63,6 +64,10 @@ def build_app(state, cfg, scheduler, dg, start_capture) -> web.Application:
     async def api_devices(_: web.Request) -> web.Response:
         devs = list_devices()
         return web.json_response({"devices": devs, "selected": cfg.get("device", "")})
+
+    async def api_waves(_: web.Request) -> web.Response:
+        from .waveforms import name_list
+        return web.json_response({"waves": [{"key": k, "cn": cn} for k, cn in name_list()]})
 
     async def api_net(_: web.Request) -> web.Response:
         candidates = dg.candidates if dg else []
@@ -149,6 +154,7 @@ def build_app(state, cfg, scheduler, dg, start_capture) -> web.Application:
     app.router.add_get("/api/config", api_config)
     app.router.add_post("/api/config", api_config)
     app.router.add_get("/api/devices", api_devices)
+    app.router.add_get("/api/waves", api_waves)
     app.router.add_get("/api/net", api_net)
     app.router.add_post("/api/cmd", api_cmd)
     app.router.add_get("/api/qr.png", api_qr)

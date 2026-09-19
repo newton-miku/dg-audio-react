@@ -20,6 +20,10 @@ DEFAULTS: dict = {
     "device": "",
     # A/B 是否联动（联动时 B 跟随 A 的设置）
     "ab_link": True,
+    # 每通道波形来源：map=自建映射 / official=官方波形
+    "srcA": "map", "srcB": "map",
+    # 官方波形（srcX=official 时生效，见 app/waveforms.py 的 key）
+    "waveA": "BREATHING", "waveB": "RHYTHM",
     # 每通道独立：响应模式 / 质感 / 拍形  (beat|hybrid|follow) (deep|mid|tingle) (sharp|double|triple|knead|swell)
     "modeA": "beat", "modeB": "beat",
     "styleA": "mid", "styleB": "tingle",

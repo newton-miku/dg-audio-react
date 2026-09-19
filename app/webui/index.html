@@ -106,11 +106,11 @@
             <option value="hybrid">混合</option>
             <option value="follow">普通音频</option>
           </select></div>
-        <div class="row"><label class="dim">质感</label>
+        <div class="row"><label class="dim help" data-help="自建映射的频率档。连续输出用低频（细麻），撞击瞬间用高频（因为低频通常一直有、高频稀少）。">质感</label>
           <select id="styleA" class="csel">
-            <option value="deep">低沉撞击</option>
+            <option value="deep">柔和（低频为主）</option>
             <option value="mid">标准</option>
-            <option value="tingle">高频细麻</option>
+            <option value="tingle">强烈（高频撞击）</option>
           </select></div>
         <div class="row"><label class="dim">拍形</label>
           <select id="shapeA" class="csel">
@@ -120,6 +120,13 @@
             <option value="knead">长揉</option>
             <option value="swell">呼吸渐强</option>
           </select></div>
+        <div class="row"><label class="dim">来源</label>
+          <select id="srcA" class="csel">
+            <option value="map">自建（随声音映射）</option>
+            <option value="official">官方波形</option>
+          </select></div>
+        <div class="row" id="waveRowA"><label class="dim">官方波形</label>
+          <select id="waveA" class="csel"></select></div>
       </div>
       <div class="chan">
         <div class="chanhead">通道 B</div>
@@ -129,11 +136,11 @@
             <option value="hybrid">混合</option>
             <option value="follow">普通音频</option>
           </select></div>
-        <div class="row"><label class="dim">质感</label>
+        <div class="row"><label class="dim help" data-help="自建映射的频率档。连续输出用低频（细麻），撞击瞬间用高频（因为低频通常一直有、高频稀少）。">质感</label>
           <select id="styleB" class="csel">
-            <option value="deep">低沉撞击</option>
+            <option value="deep">柔和（低频为主）</option>
             <option value="mid">标准</option>
-            <option value="tingle">高频细麻</option>
+            <option value="tingle">强烈（高频撞击）</option>
           </select></div>
         <div class="row"><label class="dim">拍形</label>
           <select id="shapeB" class="csel">
@@ -143,6 +150,13 @@
             <option value="knead">长揉</option>
             <option value="swell">呼吸渐强</option>
           </select></div>
+        <div class="row"><label class="dim">来源</label>
+          <select id="srcB" class="csel">
+            <option value="map">自建（随声音映射）</option>
+            <option value="official">官方波形</option>
+          </select></div>
+        <div class="row" id="waveRowB"><label class="dim">官方波形</label>
+          <select id="waveB" class="csel"></select></div>
       </div>
     </div>
     <p id="modeHint" class="dim small"></p>

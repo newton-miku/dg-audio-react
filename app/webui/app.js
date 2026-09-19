@@ -4,7 +4,8 @@ const $ = (id) => document.getElementById(id);
 
 const cfgKeys = ["chA", "chB", "ceilA", "ceilB", "sensitivity", "release_ms",
   "threshold_auto", "threshold_db", "boost_on", "boost_mode", "safety_cap",
-  "ab_link", "modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB"];
+  "ab_link", "srcA", "srcB", "waveA", "waveB",
+  "modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB"];
 
 let saveTimer = null;
 function scheduleSave() {
@@ -26,6 +27,8 @@ function controlSnapshot() {
     boost_mode: $("boostMode").value,
     safety_cap: +$("safeCap").value,
     ab_link: $("abLink").checked,
+    srcA: $("srcA").value, srcB: $("srcB").value,
+    waveA: $("waveA").value, waveB: $("waveB").value,
     modeA: $("modeA").value, modeB: $("modeB").value,
     styleA: $("styleA").value, styleB: $("styleB").value,
     shapeA: $("shapeA").value, shapeB: $("shapeB").value,
@@ -264,6 +267,7 @@ function connectWS() {
 
 // ---------- 初始化 ----------
 async function init() {
+  let cfgWaveA = null, cfgWaveB = null;
   // 控件事件
   const bindSlider = (id, valId) => {
     const el = $(id), val = $(valId);
@@ -279,7 +283,7 @@ async function init() {
 
   // A/B 联动：联动时 B 跟随 A 且不可单独改
   const linkEl = $("abLink");
-  const B_KEYS = [["modeB", "modeA"], ["styleB", "styleA"], ["shapeB", "shapeA"]];
+  const B_KEYS = [["modeB", "modeA"], ["styleB", "styleA"], ["shapeB", "shapeA"], ["srcB", "srcA"], ["waveB", "waveA"]];
   const syncLink = () => {
     const link = linkEl.checked;
     B_KEYS.forEach(([b, a]) => {
@@ -288,10 +292,18 @@ async function init() {
     });
   };
   linkEl.addEventListener("change", () => { syncLink(); updateModeHint(); scheduleSave(); });
-  ["modeA", "styleA", "shapeA"].forEach((id) => {
+  ["modeA", "styleA", "shapeA", "srcA", "waveA"].forEach((id) => {
     $(id).addEventListener("change", () => { syncLink(); updateModeHint(); scheduleSave(); });
   });
   B_KEYS.forEach(([b]) => $(b).addEventListener("change", () => { updateModeHint(); scheduleSave(); }));
+  ["srcA", "srcB"].forEach((id) => {
+    $(id).addEventListener("change", () => { syncWaveRows(); scheduleSave(); });
+  });
+  const syncWaveRows = () => {
+    const link = linkEl.checked;
+    $("waveRowA").style.display = $("srcA").value === "official" ? "" : "none";
+    $("waveRowB").style.display = ($("srcB").value === "official" || (link && $("srcA").value === "official")) ? "" : "none";
+  };
 
   ["chA", "chB"].forEach((id) => {
     $(id).addEventListener("change", scheduleSave);
@@ -357,6 +369,10 @@ async function init() {
   // 读配置 & 设备
   try {
     const cfg = await fetch("/api/config").then((r) => r.json());
+    $("srcA").value = cfg.srcA || "map";
+    $("srcB").value = cfg.srcB || "map";
+    cfgWaveA = cfg.waveA || null;
+    cfgWaveB = cfg.waveB || null;
     $("modeA").value = cfg.modeA || cfg.mode || "beat";
     $("styleA").value = cfg.styleA || cfg.style || "mid";
     $("shapeA").value = cfg.shapeA || cfg.beat_shape || "sharp";
@@ -366,6 +382,7 @@ async function init() {
     linkEl.checked = cfg.ab_link !== false;
     syncLink();
     updateModeHint();
+    syncWaveRows();
     $("chA").checked = !!cfg.chA; $("chB").checked = !!cfg.chB;
     $("ceilA").value = cfg.ceilA; $("ceilAval").textContent = cfg.ceilA;
     $("ceilB").value = cfg.ceilB; $("ceilBval").textContent = cfg.ceilB;
@@ -396,6 +413,20 @@ async function init() {
     if (dd.selected) sel.value = dd.selected;
   } catch (e) { showError("读取设备失败: " + e); }
 
+  try {
+    const wv = await fetch("/api/waves").then((r) => r.json());
+    const fill = (selId, val) => {
+      const sel = $(selId);
+      sel.innerHTML = "";
+      (wv.waves || []).forEach((w) => {
+        const o = document.createElement("option");
+        o.value = w.key; o.textContent = w.cn;
+        sel.appendChild(o);
+      });
+      if (val) sel.value = val;
+    };
+    fill("waveA", cfgWaveA); fill("waveB", cfgWaveB);
+  } catch (e) { /* 官方波形列表加载失败不影响其他功能 */ }
   await loadNet();
   connectWS();
 }

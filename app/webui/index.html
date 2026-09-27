@@ -62,11 +62,6 @@
       <span class="dim small">达标约 8s 升一级；恢复约 5s 降一级。</span>
     </div>
     <div class="row">
-      <label class="dim help" data-help="硬上限(20-200)：无论基础拉多高、自动增强加多少，输出强度都不会超过它——防止受不了。">安全最高强度 <b id="safeCapVal">160</b></label>
-      <input type="range" id="safeCap" min="20" max="200" step="5" value="160" />
-      <span class="dim small">无论手动/自动都不超过（硬上限）。</span>
-    </div>
-    <div class="row">
       <button id="resetBoostBtn">恢复基础强度</button>
       <span class="dim small">当前增强：A <b id="boostAText">0</b> · B <b id="boostBText">0</b></span>
     </div>
@@ -74,16 +69,26 @@
       <div class="chan" data-ch="A">
         <label class="chk"><input type="checkbox" id="chA" /> 通道 A</label>
         <div class="row">
-          <label class="dim help" data-help="A 通道基础主强度；自动增强会在其上往上加，但都不超过“安全最高强度”。">上限 <b id="ceilAval">50</b></label>
+          <label class="dim help" data-help="A 通道基础主强度；自动增强会在其上往上加，但都不超过下面的「安全上限」。">基础强度 <b id="ceilAval">50</b></label>
           <input type="range" id="ceilA" min="0" max="200" step="1" value="50" />
+        </div>
+        <div class="row">
+          <label class="dim help" data-help="A 通道独立安全硬上限(20-200)：手动、自动增强、测试波形全都不会越过它。与 B 互不影响，也不受“A/B 联动”影响。">安全上限 <b id="safeAval">160</b></label>
+          <input type="range" id="safeA" min="20" max="200" step="5" value="160" />
+          <span class="dim small" id="capHintA"></span>
         </div>
         <div class="dim small">App 当前：<span id="aText">0</span>/<span id="aLimitText">0</span></div>
       </div>
       <div class="chan" data-ch="B">
         <label class="chk"><input type="checkbox" id="chB" /> 通道 B</label>
         <div class="row">
-          <label class="dim help" data-help="B 通道基础主强度；自动增强在其上往上加，均不超过“安全最高强度”。">上限 <b id="ceilBval">50</b></label>
+          <label class="dim help" data-help="B 通道基础主强度；自动增强在其上往上加，均不超过下面的「安全上限」。">基础强度 <b id="ceilBval">50</b></label>
           <input type="range" id="ceilB" min="0" max="200" step="1" value="50" />
+        </div>
+        <div class="row">
+          <label class="dim help" data-help="B 通道独立安全硬上限(20-200)：手动、自动增强、测试波形全都不会越过它。与 A 互不影响，也不受“A/B 联动”影响。">安全上限 <b id="safeBval">160</b></label>
+          <input type="range" id="safeB" min="20" max="200" step="5" value="160" />
+          <span class="dim small" id="capHintB"></span>
         </div>
         <div class="dim small">App 当前：<span id="bText">0</span>/<span id="bLimitText">0</span></div>
       </div>

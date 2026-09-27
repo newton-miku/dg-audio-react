@@ -18,7 +18,7 @@ CONFIG_KEYS = {
     "chA", "chB", "ceilA", "ceilB",
     "sensitivity", "release_ms",
     "threshold_auto", "threshold_db",
-    "boost_on", "boost_mode", "safety_cap",
+    "boost_on", "boost_mode", "safety_capA", "safety_capB", "safety_cap",
     # 每通道独立：波形来源/官方波形/模式/质感/拍形 + 联动
     "ab_link",
     "srcA", "srcB", "waveA", "waveB",

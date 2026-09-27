@@ -45,7 +45,10 @@ DEFAULTS: dict = {
     "boost_on": False,
     # 达标停止后：recover=自动逐步恢复 / hold=一直保持直到手动恢复
     "boost_mode": "recover",
-    # 安全硬上限：无论手动/自动都不超过的输出强度（0-200）
+    # 安全硬上限（每通道独立，0-200）：无论手动/自动/测试波形都不超过的输出强度
+    "safety_capA": 160,
+    "safety_capB": 160,
+    # 旧版全局安全上限（仅用于读取老配置时迁移）
     "safety_cap": 160,
     # 灵敏度：0-100，越高"曲线越陡"（小音量相对更弱、大音量更冲）
     "sensitivity": 45,
@@ -81,19 +84,26 @@ class Config:
             self._migrate(data)
 
     def _migrate(self, data: dict) -> None:
-        """老配置只有全局 mode/style/beat_shape：迁移到 A，并让联动时 B 也一致。"""
-        if any(k in data for k in ("modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB")):
-            return
-        legacy = {"mode": "modeA", "style": "styleA", "beat_shape": "shapeA"}
-        hit = False
-        for old, new in legacy.items():
-            if old in data:
-                v = self.d.get(new)
-                self.d[new] = data[old]
-                self.d[new[:-1] + "B"] = data[old]
-                hit = True
-        if hit:
-            self.d["ab_link"] = True
+        """老配置迁移：① 全局 mode/style/beat_shape -> 每通道；② 全局 safety_cap -> 每通道。"""
+        changed = False
+        if not any(k in data for k in ("modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB")):
+            legacy = {"mode": "modeA", "style": "styleA", "beat_shape": "shapeA"}
+            hit = False
+            for old, new in legacy.items():
+                if old in data:
+                    self.d[new] = data[old]
+                    self.d[new[:-1] + "B"] = data[old]
+                    hit = True
+            if hit:
+                self.d["ab_link"] = True
+                changed = True
+        # 只有全局 safety_cap 的老配置：原值复制到 A/B，避免被默认 160 抬高
+        if "safety_capA" not in data and "safety_capB" not in data and "safety_cap" in data:
+            v = int(min(200, max(0, float(data["safety_cap"]))))
+            self.d["safety_capA"] = v
+            self.d["safety_capB"] = v
+            changed = True
+        if changed:
             self.save()
 
     def save(self) -> None:

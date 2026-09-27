@@ -3,7 +3,7 @@
 const $ = (id) => document.getElementById(id);
 
 const cfgKeys = ["chA", "chB", "ceilA", "ceilB", "sensitivity", "release_ms",
-  "threshold_auto", "threshold_db", "boost_on", "boost_mode", "safety_cap",
+  "threshold_auto", "threshold_db", "boost_on", "boost_mode", "safety_capA", "safety_capB",
   "ab_link", "srcA", "srcB", "waveA", "waveB",
   "modeA", "modeB", "styleA", "styleB", "shapeA", "shapeB"];
 
@@ -25,7 +25,8 @@ function controlSnapshot() {
     threshold_db: +$("thresh").value,
     boost_on: $("boostOn").checked,
     boost_mode: $("boostMode").value,
-    safety_cap: +$("safeCap").value,
+    safety_capA: +$("safeA").value,
+    safety_capB: +$("safeB").value,
     ab_link: $("abLink").checked,
     srcA: $("srcA").value, srcB: $("srcB").value,
     waveA: $("waveA").value, waveB: $("waveB").value,
@@ -279,7 +280,21 @@ async function init() {
   };
   bindSlider("ceilA", "ceilAval"); bindSlider("ceilB", "ceilBval");
   bindSlider("thresh", "threshVal"); bindSlider("sens", "sensVal"); bindSlider("relMs", "relMsVal");
-  bindSlider("safeCap", "safeCapVal");
+  bindSlider("safeA", "safeAval"); bindSlider("safeB", "safeBval");
+
+  // 基础上限被本通道安全上限压住时给出即时提示（两通道各自判断）
+  const updateCapHints = () => {
+    [["A", "ceilA", "safeA"], ["B", "ceilB", "safeB"]].forEach(([ch, cId, sId]) => {
+      const el = $("capHint" + ch);
+      if (!el) return;
+      const c = +$(cId).value, s = +$(sId).value;
+      el.textContent = c > s ? "基础 " + c + " 超了，实际按 " + s + " 输出" : "";
+    });
+  };
+  ["ceilA", "safeA", "ceilB", "safeB"].forEach((id) => {
+    $(id).addEventListener("input", updateCapHints);
+  });
+  updateCapHints();
 
   // A/B 联动：联动时 B 跟随 A 且不可单独改
   const linkEl = $("abLink");
@@ -392,8 +407,13 @@ async function init() {
     setGateUI(gateAutoEl.checked);
     $("boostOn").checked = !!cfg.boost_on;
     $("boostMode").value = cfg.boost_mode || "recover";
-    $("safeCap").value = cfg.safety_cap || 160;
-    $("safeCapVal").textContent = cfg.safety_cap || 160;
+    // 每通道独立安全上限（老配置只有全局 safety_cap 时用它兜底）
+    const legacyCap = cfg.safety_cap == null ? null : cfg.safety_cap;
+    const safeA = cfg.safety_capA == null ? (legacyCap == null ? 160 : legacyCap) : cfg.safety_capA;
+    const safeB = cfg.safety_capB == null ? (legacyCap == null ? 160 : legacyCap) : cfg.safety_capB;
+    $("safeA").value = safeA; $("safeAval").textContent = safeA;
+    $("safeB").value = safeB; $("safeBval").textContent = safeB;
+    updateCapHints();
     $("sens").value = cfg.sensitivity; $("sensVal").textContent = cfg.sensitivity;
     $("relMs").value = cfg.release_ms; $("relMsVal").textContent = cfg.release_ms;
   } catch (e) { showError("读取配置失败: " + e); }

@@ -323,12 +323,22 @@ class Scheduler:
         self._applied = {"A": None, "B": None}
         self.state.poke()
 
+    def _safety_cap(self, ch: str) -> int:
+        """该通道独立的安全硬上限（0-200）：手动/自动/测试波形都不允许越过。"""
+        cfg = self.cfg.d
+        v = cfg.get(f"safety_cap{ch}")
+        if v is None:                       # 兼容只有全局 safety_cap 的旧配置
+            v = cfg.get("safety_cap", 200)
+        try:
+            return int(min(200, max(0, float(v))))
+        except (TypeError, ValueError):
+            return 200
+
     def _target_strength(self, ch: str) -> int:
-        """该通道当前目标主强度 = min(安全上限, 基础上限 + 自动增强)。"""
+        """该通道当前目标主强度 = min(本通道安全上限, 基础上限 + 自动增强)。"""
         cfg = self.cfg.d
         ceil = float(cfg.get("ceilA", 50) if ch == "A" else cfg.get("ceilB", 50))
-        safety = int(min(200, max(0, float(cfg.get("safety_cap", 200)))))
-        return int(min(safety, min(200, ceil) + self._boost[ch]))
+        return int(min(self._safety_cap(ch), min(200, ceil) + self._boost[ch]))
 
     def _update_boost(self, amp: float, dt: float) -> None:
         cfg = self.cfg.d
@@ -350,8 +360,7 @@ class Scheduler:
             self._hot_s = 0.0
             for ch in ("A", "B"):
                 ceil = float(cfg.get("ceilA", 50) if ch == "A" else cfg.get("ceilB", 50))
-                safety = int(min(200, max(0, float(cfg.get("safety_cap", 200)))))
-                room = max(0, safety - int(min(200, ceil)))
+                room = max(0, self._safety_cap(ch) - int(min(200, ceil)))
                 if self._boost[ch] < room:
                     self._boost[ch] = min(room, self._boost[ch] + BOOST_STEP)
                     changed = True
@@ -436,7 +445,8 @@ class Scheduler:
         strength = self._target_strength(ch)
         if limit > 0:
             strength = min(strength, limit)
-        strength = max(10, strength)
+        strength = max(10, strength)                  # 保证测试波有可感知效果
+        strength = min(strength, self._safety_cap(ch))  # 但绝不越过本通道安全上限
         try:
             await self.dg.client.set_strength(channel, StrengthOperationType.SET_TO, strength)
             self._applied[ch] = strength
